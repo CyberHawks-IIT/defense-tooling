@@ -1,8 +1,7 @@
-[monitor://{{ splunk_uf_monitor_path }}/*.log]
+{% for filename in splunk_uf_monitor_files %}
+[monitor://{{ splunk_uf_monitor_path }}/{{ filename }}]
 disabled = 0
 sourcetype = {{ splunk_uf_sourcetype_placeholder }}
 index = {{ splunk_uf_index }}
-whitelist = \.log$
-{% if splunk_uf_exclude_files %}
-blacklist = {{ splunk_uf_exclude_files }}
-{% endif %}
+
+{% endfor %}

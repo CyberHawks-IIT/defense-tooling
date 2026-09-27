@@ -25,4 +25,14 @@ splunk_uf_indexer_port: "{{ splunk_receiving_port }}"
 splunk_uf_monitor_path: /opt/zeek/logs/current
 splunk_uf_index: main
 splunk_uf_sourcetype_placeholder: zeek_placeholder
-splunk_uf_exclude_files: '(loaded_scripts|packet_filter|stdout|stderr)\.log$'
+
+# Deliberately minimal — only the Zeek logs something in
+# splunk-detections/detections/backlog.md actually depends on. Keep this in
+# sync with that repo's "Zeek logs actually needed" table; forwarding more
+# than this spends license/storage on data nobody's detecting on.
+splunk_uf_monitor_files:
+  - conn.log
+  - dns.log
+  - dce_rpc.log
+  - kerberos.log
+  - ldap.log

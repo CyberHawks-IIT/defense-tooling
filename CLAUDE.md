@@ -38,7 +38,9 @@ Every gotcha below was hit for real, not anticipated in the abstract.
 - **Splunk forwarder role (Linux)**: built and verified — installs the UF,
   configures `inputs.conf`/`outputs.conf`, confirmed live end-to-end
   (established TCP connection, real throughput in the indexer's
-  `metrics.log`).
+  `metrics.log`). `inputs.conf` forwards an explicit minimal allowlist of
+  files (`splunk_uf_monitor_files`), not a directory wildcard — see "What
+  gets forwarded vs. how it's typed" below.
 - **Splunk forwarder role (Windows)**: not built yet. Needed for forwarding
   `WinEventLog`/Sysmon off the range's domain controllers once that's ready
   to wire up. `Splunk_TA_windows` and `Splunk_TA_microsoft_sysmon` are
@@ -130,21 +132,33 @@ The `zeek_sensor` role deliberately does **not** touch `local.zeek`'s
 logging format — Zeek's TSV default is exactly what's wanted, so there's
 nothing to configure.
 
-### Dynamic Zeek sourcetype assignment
+### What gets forwarded vs. how it's typed — two separate, deliberate decisions
 
-Rather than hand-listing every possible Zeek log file in the forwarder's
-`inputs.conf`, the `splunk_indexer` role deploys a `props.conf`/
-`transforms.conf` local override on top of `Splunk_TA_zeek` that maps
+**What gets forwarded** (`splunk_uf_monitor_files`, `splunk_forwarder` role)
+is a deliberately minimal, explicit allowlist — not a directory wildcard.
+Only the Zeek logs `splunk-detections`' `detections/backlog.md` actually
+depends on (currently `conn`, `dns`, `dce_rpc`, `kerberos`, `ldap` — five of
+the 20+ logs Zeek can produce). Forwarding everything Zeek writes would mean
+spending indexing license and storage on `http.log`, `ssl.log`, `files.log`,
+and so on with no detection consuming any of it. When a new detection needs
+a Zeek log not already in that list, add the file to
+`splunk_uf_monitor_files` (role default *and*
+`group_vars/all.yml.example`) *and* to `splunk-detections`' table — the two
+are meant to stay in lockstep, and neither alone tells the whole story.
+
+**How it's typed once it arrives** is a separate concern, and *is* still
+generic: the `splunk_indexer` role deploys a `props.conf`/`transforms.conf`
+local override on top of `Splunk_TA_zeek` that maps
 `source::.../zeek/logs/*/*.log` to a dynamic sourcetype via regex
 (`/logs/[^/]+/([a-zA-Z0-9_]+)\.log$` → `zeek:$1`). This means `conn.log`
 becomes `zeek:conn`, `kerberos.log` becomes `zeek:kerberos`, and so on
-automatically — including any future Zeek log type, with no config changes
-needed when a new analyzer starts producing a log that didn't exist before.
-The forwarder's own `inputs.conf` just sets a placeholder sourcetype
-(`zeek_placeholder`); the indexer-side transform is what actually assigns
-the real one. This only works because the transform lives on whichever tier
-does event parsing (the indexer, in a plain UF→indexer topology) — it would
-need to move to a heavy forwarder in a more layered deployment.
+automatically, with no changes needed if the *set* of forwarded logs above
+changes — the forwarder's own `inputs.conf` just sets a placeholder
+sourcetype (`zeek_placeholder`); the indexer-side transform assigns the
+real one regardless of which specific files show up. This only works
+because the transform lives on whichever tier does event parsing (the
+indexer, in a plain UF→indexer topology) — it would need to move to a heavy
+forwarder in a more layered deployment.
 
 ### `MSYS_NO_PATHCONV` when scripting this from Windows/Git Bash
 

@@ -5,9 +5,13 @@
       - splunk_uf_deb_path | length > 0
       - splunk_uf_monitor_path | length > 0
       - splunk_uf_indexer_host | length > 0
+      - splunk_uf_monitor_files | length > 0
     fail_msg: >-
-      splunk_uf_deb_path, splunk_uf_monitor_path, and splunk_uf_indexer_host
-      must all be set. See docs/add-ons.md for the forwarder download.
+      splunk_uf_deb_path, splunk_uf_monitor_path, splunk_uf_indexer_host,
+      and splunk_uf_monitor_files must all be set. splunk_uf_monitor_files
+      is deliberately not defaulted to a wildcard — list only the files you
+      actually have a detection for. See docs/add-ons.md for the forwarder
+      download.
 
 - name: Copy the Universal Forwarder package to this host
   ansible.builtin.copy:

@@ -16,7 +16,7 @@ for the concrete addresses these examples are based on.
 |---|---|---|
 | `zeek_sensor` role | Installs latest Zeek, configures a dedicated capture NIC | Built + verified |
 | `splunk_indexer` role | Installs Splunk Enterprise, add-ons, receiving port, Zeek sourcetype mapping | Built + verified |
-| `splunk_forwarder` role (Linux) | Installs the Universal Forwarder, wires it to the indexer | Built + verified |
+| `splunk_forwarder` role (Linux) | Installs the Universal Forwarder, forwards an explicit minimal allowlist of files (not a directory wildcard) | Built + verified |
 | `splunk_forwarder` role (Windows) | Same, for DCs | Not built yet |
 | `scripts/proxmox/setup-mirror.sh` | Mirrors a router's interfaces to a sensor via `tc` | Built + verified |
 | `scripts/proxmox/create-privileged-lxc.sh` | Builds a privileged LXC without the linked-clone trap | Built + verified |

@@ -17,6 +17,15 @@ splunk_uf_indexer_port: 9997
 # mapping (or write your own index-time transform) if you need real
 # per-file typing instead of one blanket sourcetype.
 splunk_uf_monitor_path: ""
+
+# Explicit allowlist of filenames (relative to splunk_uf_monitor_path) to
+# forward — deliberately NOT a directory wildcard. Forward only what you
+# actually have a detection for; every file here is bandwidth, indexing
+# license, and storage spent on data nobody's looking at. For the Zeek
+# sensor specifically, this list should match splunk-detections'
+# detections/backlog.md "Zeek logs actually needed" table exactly — update
+# both together.
+splunk_uf_monitor_files: []
+
 splunk_uf_sourcetype_placeholder: forwarded_logs
 splunk_uf_index: main
-splunk_uf_exclude_files: ""
