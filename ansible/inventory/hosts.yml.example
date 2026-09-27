@@ -20,7 +20,13 @@ all:
     splunk_forwarders_windows:
       # Any Windows host you want shipping logs to the indexer, e.g. AD
       # domain controllers. Needs WinRM reachability, not SSH — see the
-      # group_vars below.
+      # group_vars below. What Windows Event Log channels get forwarded
+      # (splunk_uf_win_monitor_channels) belongs in
+      # group_vars/splunk_forwarders_windows/ for values common to every
+      # member of this group, and host_vars/<hostname>.yml for host-specific
+      # additions (e.g. domain controllers needing an extra channel a member
+      # server doesn't) — see host_vars/dc1.yml.example and CLAUDE.md's
+      # monitoring rollout plan step 3.
       hosts:
         dc1:
           ansible_host: 10.0.2.2

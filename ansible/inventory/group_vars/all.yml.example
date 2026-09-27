@@ -43,8 +43,34 @@ splunk_uf_win_admin_password: "{{ vault_windows_admin_password }}"
 splunk_uf_win_indexer_host: "{{ hostvars['splunk'].ansible_host }}"
 splunk_uf_win_indexer_port: "{{ splunk_receiving_port }}"
 
-# Left empty on purpose — step 3 of the monitoring rollout plan (CLAUDE.md)
-# hasn't yet decided channel-level vs. per-event-ID granularity for Windows
-# Event Forwarder inputs. This role only installs the forwarder and connects
-# it to the indexer until that's settled.
-splunk_uf_win_monitor_channels: []
+# Deliberately left unset here — this is the one exception to "put shared
+# vars in all.yml": every AD member needs the same baseline channels, but
+# the two DCs need one extra (Directory Service, for 1644), so the real
+# values live in group_vars/splunk_forwarders_windows/ (the common set) and
+# host_vars/dc1.yml + host_vars/dc2.yml (the DC-only addition), combined as:
+#   splunk_uf_win_monitor_channels: "{{ splunk_uf_win_monitor_channels_common + splunk_uf_win_monitor_channels_extra }}"
+#
+# See CLAUDE.md's monitoring rollout plan step 3 for the channel-vs-event-ID
+# granularity decision. Summary: Security, System, Directory Service, and
+# Windows Defender/Operational are all high-volume-or-noisy relative to what
+# backlog.md actually needs from them, so each gets an explicit `whitelist`
+# of just the Event IDs in question. Sysmon/Operational, WMI-Activity/
+# Operational, and WinRM/Operational are left unfiltered (whole channel) —
+# Sysmon is already scoped at the source by its own config, and the other
+# two are narrow-purpose channels with no meaningful volume in this lab.
+#
+# group_vars/splunk_forwarders_windows/monitor.yml:
+#   splunk_uf_win_monitor_channels_common:
+#     - channel: Security
+#       whitelist: "1102,4624,4625,4656,4657,4662,4663,4697,4698,4720,4728,4732,4741,4756,4768,4769,4771,5136,5137,5145"
+#     - channel: System
+#       whitelist: "104,7040,7045"
+#     - channel: Microsoft-Windows-Sysmon/Operational
+#     - channel: Microsoft-Windows-WMI-Activity/Operational
+#     - channel: Microsoft-Windows-WinRM/Operational
+#     - channel: Microsoft-Windows-Windows Defender/Operational
+#       whitelist: "5001-5013"
+#   splunk_uf_win_monitor_channels_extra: []
+#
+# host_vars/dc1.yml.example and host_vars/dc2.yml.example show the DC-only
+# addition (Directory Service, whitelist "1644").

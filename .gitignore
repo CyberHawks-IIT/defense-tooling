@@ -7,7 +7,8 @@ ansible/inventory/group_vars/all.yml
 ansible/inventory/group_vars/*.yml
 !ansible/inventory/group_vars/*.yml.example
 ansible/inventory/group_vars/**/vault.yml
-ansible/inventory/host_vars/
+ansible/inventory/host_vars/*
+!ansible/inventory/host_vars/*.yml.example
 ansible/.vault_pass
 
 # Downloaded Splunk add-ons dropped here for splunk_addons_dir.

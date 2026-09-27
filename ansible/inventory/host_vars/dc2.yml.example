@@ -1,0 +1,4 @@
+# See host_vars/dc1.yml.example — dc1 and dc2 are peers, same addition.
+splunk_uf_win_monitor_channels_extra:
+  - channel: "Directory Service"
+    whitelist: "1644"

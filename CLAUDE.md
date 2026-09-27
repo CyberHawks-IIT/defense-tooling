@@ -47,11 +47,16 @@ Every gotcha below was hit for real, not anticipated in the abstract.
 - **Splunk forwarder role (Windows)**: built and verified — `splunk_forwarder_windows`
   installs the UF via `.msi` over WinRM, deploys `outputs.conf`, confirmed
   live end-to-end (real `ESTAB` connections on the indexer's `:9997` from
-  all 7 `cyberhawks.lab` AD range VMs). Like the Linux role,
-  `splunk_uf_win_monitor_channels` is deliberately left empty for now —
-  install + connect only, per monitoring rollout plan step 1 vs. step 3
-  below. `Splunk_TA_windows` and `Splunk_TA_microsoft_sysmon` confirmed
-  already present on the indexer.
+  all 7 `cyberhawks.lab` AD range VMs). `Splunk_TA_windows` and
+  `Splunk_TA_microsoft_sysmon` confirmed already present on the indexer.
+  **Monitoring rollout plan step 3 (2026-09-27): done.** All 7 hosts now
+  forward an explicit set of WinEventLog channels — see "Windows Event Log
+  channel-level vs. per-event-ID filtering" below for the granularity
+  decision and the exact channel/whitelist list. Confirmed live: the
+  indexer's `metrics.log` shows real, ongoing throughput for the
+  `forwarded_logs` sourcetype (tens of events/sec across the 7 hosts), and
+  every host's `splunkd.log` is free of `WinEventLogChannel` subscribe
+  errors after the Event Log Readers fix below.
 - **Proxmox mirror script**: built and verified — `tc` ingress mirroring
   from a router VM's interfaces to a sensor's capture NIC, persisted via
   hookscripts on **both** the router VM and the sensor CT (a sensor restart
@@ -235,6 +240,94 @@ because the transform lives on whichever tier does event parsing (the
 indexer, in a plain UF→indexer topology) — it would need to move to a heavy
 forwarder in a more layered deployment.
 
+### Windows Event Log channel-level vs. per-event-ID filtering (monitoring rollout plan step 3, 2026-09-27)
+
+The open design question from step 3 (see the plan below) is resolved:
+**neither pure channel-level monitoring nor uniform per-event-ID filtering
+— the granularity is decided per channel**, based on how far a whole-channel
+firehose actually diverges from what `splunk-detections/detections/backlog.md`
+needs from it.
+
+- **Get an explicit `whitelist` of just the Event IDs backlog.md needs:**
+  `Security` (by far the highest-volume channel here — every logon, ticket
+  request, and object-access check on every domain-joined host), `System`,
+  `Directory Service` (only relevant on dc1/dc2 — 1644 diagnostics logs
+  *every* LDAP query verbatim once both Field Engineering thresholds are set
+  to 0, so this is high-volume specifically because step 2 configured it to
+  be), and `Microsoft-Windows-Windows Defender/Operational` (routine AV
+  scan/signature-update noise alongside the tamper-protection events
+  (5001-5013) actually wanted).
+- **Left unfiltered (whole channel):** `Microsoft-Windows-Sysmon/Operational`
+  (already scoped at the source — `cyber-range`'s Sysmon config only emits
+  the event types asked for, so a second filter here would be redundant),
+  `Microsoft-Windows-WMI-Activity/Operational`, and
+  `Microsoft-Windows-WinRM/Operational` (both narrow-purpose channels with
+  no meaningful volume in this lab).
+
+Implementation shape: `splunk_uf_win_monitor_channels` (`splunk_forwarder_windows`
+role) is now a list of `{channel, whitelist}` dicts — `whitelist` is optional,
+a comma-separated Event ID/range list (e.g. `"5001-5013"`) passed straight
+through to `inputs.conf`'s own `whitelist =` key. Real values: the common
+baseline (all 7 hosts) lives in
+`ansible/inventory/group_vars/splunk_forwarders_windows/monitor.yml`; the
+DC-only `Directory Service` addition lives in `host_vars/dc1.yml` and
+`host_vars/dc2.yml`, combined via
+`splunk_uf_win_monitor_channels_common + splunk_uf_win_monitor_channels_extra`
+— same "common group vars + host_vars addition" shape as the Zeek/demo split
+under "Per-host monitor config must not live in `group_vars/all.yml`" below.
+`host_vars/` is entirely gitignored (real hostnames/IPs), so
+`host_vars/dc1.yml.example` and `host_vars/dc2.yml.example` are the tracked
+templates — `.gitignore` gained a `!ansible/inventory/host_vars/*.yml.example`
+exception for this, mirroring the existing `group_vars/*.yml.example` one.
+
+IIS-based detections (web portal weak-password, ADCS ESC8 web enrollment)
+and the SQL Server Audit/Extended Events source are deliberately **not**
+forwarded — `cyber-range`'s `detection_logging` role never turned IIS
+logging or SQL Server auditing on in the first place (see that repo's
+CLAUDE.md, monitoring rollout plan step 2), so there's nothing there yet to
+forward. Revisit once step 2 covers those sources.
+
+### Splunk UF on Windows needs `Event Log Readers` membership for non-Security channels — and the fix must skip domain controllers
+
+Turning on the channels above surfaced two more things, both now fixed in
+`splunk_forwarder_windows`:
+
+1. **The role's "copy installer, then check if already installed" order was
+   backwards.** `Copy the Universal Forwarder package to this host` ran
+   unconditionally, before the `Check whether the forwarder is already
+   installed` stat task — harmless as long as `splunk_uf_win_msi_path` still
+   pointed at a real file, but this deployment's path was an old session's
+   scratchpad temp directory, since cleaned up. Re-running the playbook to
+   apply the new `inputs.conf` (all 7 hosts already had the UF installed)
+   failed immediately on the copy step with a missing-source-file error.
+   Fixed by moving the stat check first and gating both the msi/admin-password
+   assertion and the copy itself on `not uf_win_binary.stat.exists`, matching
+   how the install step itself was already gated — a first-time install still
+   needs the real installer path; a config-only re-run no longer does.
+2. **Confirmed live:** after adding `Microsoft-Windows-Sysmon/Operational` to
+   the monitored channels, `splunkd.log` logged
+   `WinEventLogChannel::init: ... errorCode=5` (access denied) on 5 of the 7
+   hosts (ca, web, sql1, sql2, workstation) — every host where the UF service
+   runs as the virtual `NT SERVICE\SplunkForwarder` account rather than
+   `LocalSystem` (dc1 and dc2, confirmed via `sc.exe qc SplunkForwarder`, are
+   the two that got `LocalSystem` and were unaffected). The Splunk MSI
+   installer grants its service account enough rights to read `Security`/
+   `System` out of the box, but a custom channel like Sysmon's ships with its
+   own restrictive default ACL (Administrators/SYSTEM/`Event Log Readers`
+   only) that the virtual service account isn't part of.
+   Fix: `ansible.windows.win_group_membership` adds
+   `NT SERVICE\SplunkForwarder` to the local `Event Log Readers` group
+   (Sysmon's channel ACL already grants that group read access, so this is
+   the minimal fix — no channel ACL edit needed) — but **only** when the
+   service isn't already `LocalSystem`, detected via `sc.exe qc
+   SplunkForwarder`. This matters beyond redundancy: `Event Log Readers` is a
+   local WinNT group, and a domain controller has no local SAM group of that
+   name for `win_group_membership`'s WinNT provider to find — confirmed live,
+   it throws `The parameter is incorrect` on dc1/dc2 if attempted
+   unconditionally. Verified clean afterward: no `WinEventLogChannel` errors
+   in any of the 7 hosts' `splunkd.log`, and the indexer's `metrics.log`
+   shows sustained `forwarded_logs` throughput.
+
 ### `MSYS_NO_PATHCONV` when scripting this from Windows/Git Bash
 
 If you're driving Ansible or raw `ssh`/`scp` from Git Bash on Windows, any
@@ -311,16 +404,14 @@ is documented in `cyber-range`'s CLAUDE.md under "Monitoring rollout plan"
   (see `docs/add-ons.md` for exact installed folder names). Every forwarder
   is install + connect only — no monitor files/channels configured
   anywhere yet, that's still step 3.
-- **Step 3 — forward a minimal, explicit set of logs.** Same principle
-  already applied to Zeek (`splunk_uf_monitor_files` — an explicit
-  allowlist, never a wildcard), extended to Windows. Open design question
-  to resolve when this starts: Windows Event Forwarder inputs work at the
-  **channel** level (`WinEventLog://Security`, `.../Directory Service`,
-  `.../System`, plus the Sysmon/WinRM/WMI-Activity operational channels) —
-  decide whether channel-level granularity is "minimal enough" or whether
-  per-event-ID whitelisting (via the input's own whitelist/blacklist
-  regexes) is worth the added complexity, especially for high-volume
-  channels like Security.
+- **Step 3 — forward a minimal, explicit set of logs.** **Done (2026-09-27).**
+  Same principle already applied to Zeek (`splunk_uf_monitor_files` — an
+  explicit allowlist, never a wildcard), extended to Windows. See "Windows
+  Event Log channel-level vs. per-event-ID filtering" above for the
+  channel/whitelist decision and exact list, and the gotcha right after it
+  for two more fixes this surfaced. All 7 hosts confirmed forwarding live
+  (sustained `forwarded_logs` throughput in the indexer's `metrics.log`, no
+  `WinEventLogChannel` errors in any host's `splunkd.log`).
 - **Step 4 — organize ingested data in Splunk.** Decide whether Windows/
   Sysmon/Linux data gets its own index(es) separate from the `main` index
   Zeek already uses (open item below), confirm the installed add-ons'

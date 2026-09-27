@@ -1,0 +1,9 @@
+# DC-only addition to splunk_uf_win_monitor_channels — see
+# group_vars/all.yml.example's note on splunk_forwarder_windows for how this
+# combines with the common list. 1644 (LDAP query content, both Field
+# Engineering thresholds set to 0) only fires — and only matters — on domain
+# controllers, so it's not part of the baseline every AD member gets.
+# Same content belongs in host_vars/dc2.yml — dc1 and dc2 are peers here.
+splunk_uf_win_monitor_channels_extra:
+  - channel: "Directory Service"
+    whitelist: "1644"

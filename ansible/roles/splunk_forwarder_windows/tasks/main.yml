@@ -1,29 +1,34 @@
 ---
-- name: Assert required variables are set
+- name: Assert splunk_uf_win_indexer_host is set
   ansible.builtin.assert:
-    that:
-      - splunk_uf_win_msi_path | length > 0
-      - splunk_uf_win_indexer_host | length > 0
+    that: splunk_uf_win_indexer_host | length > 0
     fail_msg: >-
-      splunk_uf_win_msi_path and splunk_uf_win_indexer_host must both be
-      set. splunk_uf_win_monitor_channels is deliberately left unset for
-      now — see docs/add-ons.md for the forwarder download and CLAUDE.md's
-      monitoring rollout plan step 3 for why channels aren't configured yet.
-
-- name: Copy the Universal Forwarder package to this host
-  ansible.windows.win_copy:
-    src: "{{ splunk_uf_win_msi_path }}"
-    dest: 'C:\Windows\Temp\splunkforwarder-windows.msi'
+      splunk_uf_win_indexer_host must be set. splunk_uf_win_monitor_channels
+      defaults to [] (install + connect only) — see docs/add-ons.md for the
+      forwarder download and CLAUDE.md's monitoring rollout plan step 3 for
+      the real per-host channel lists.
 
 - name: Check whether the forwarder is already installed
   ansible.windows.win_stat:
     path: "{{ splunk_uf_win_home }}\\bin\\splunk.exe"
   register: uf_win_binary
 
-- name: Assert splunk_uf_win_admin_password is set for first-time install
+# msi_path/admin_password are only needed for a first-time install — once
+# the UF is present, re-runs (e.g. to update inputs.conf) shouldn't require
+# re-pointing at an installer that may no longer even exist on disk (it's
+# typically a one-off download/temp path, not something kept around).
+- name: Assert splunk_uf_win_msi_path and splunk_uf_win_admin_password are set for first-time install
   ansible.builtin.assert:
-    that: splunk_uf_win_admin_password | length > 0
-    fail_msg: "splunk_uf_win_admin_password must be set for the forwarder's first install."
+    that:
+      - splunk_uf_win_msi_path | length > 0
+      - splunk_uf_win_admin_password | length > 0
+    fail_msg: "splunk_uf_win_msi_path and splunk_uf_win_admin_password must be set for the forwarder's first install."
+  when: not uf_win_binary.stat.exists
+
+- name: Copy the Universal Forwarder package to this host
+  ansible.windows.win_copy:
+    src: "{{ splunk_uf_win_msi_path }}"
+    dest: 'C:\Windows\Temp\splunkforwarder-windows.msi'
   when: not uf_win_binary.stat.exists
 
 # Unlike the Linux .deb (installed, then separately started with
@@ -40,6 +45,45 @@
       SPLUNKPASSWORD="{{ splunk_uf_win_admin_password }}"
       LAUNCHSPLUNK=1
   when: not uf_win_binary.stat.exists
+
+# Which account the service actually ended up running as varies across
+# these 7 hosts (confirmed live: LocalSystem on dc1/dc2, the virtual
+# NT SERVICE\SplunkForwarder account on the other 5) -- not something this
+# role sets, so detect it rather than assume it.
+- name: Determine the forwarder service's logon account
+  ansible.windows.win_shell: sc.exe qc SplunkForwarder | findstr SERVICE_START_NAME
+  register: uf_win_service_account
+  changed_when: false
+  when: splunk_uf_win_monitor_channels | length > 0
+
+# LocalSystem already has full access to every channel, including
+# custom/restrictive ones like Sysmon's -- nothing to fix, and skipping
+# this matters beyond just being redundant: "Event Log Readers" is a local
+# WinNT group, and on a domain controller there's no local SAM group of
+# that name for win_group_membership's WinNT provider to find (confirmed
+# live -- it throws "The parameter is incorrect" on dc1/dc2), so this must
+# stay conditional rather than best-effort/ignored.
+#
+# For everyone else, the MSI installer grants its own service account
+# enough rights to read Security/System out of the box, but custom
+# channels like Sysmon's ship with their own restrictive default ACL
+# (Administrators/SYSTEM/Event Log Readers only) that the virtual service
+# account isn't part of. Confirmed live: without this, splunkd.log logs
+# "WinEventLogChannel::init: ... errorCode=5" (access denied) for
+# Microsoft-Windows-Sysmon/Operational specifically. The channel's ACL
+# already grants Event Log Readers read access, so adding the service
+# account there (rather than editing the channel ACL itself) is the
+# minimal fix.
+- name: Ensure the forwarder's service account can read Windows Event Log channels
+  ansible.windows.win_group_membership:
+    name: Event Log Readers
+    members:
+      - "NT SERVICE\\SplunkForwarder"
+    state: present
+  when:
+    - splunk_uf_win_monitor_channels | length > 0
+    - "'LocalSystem' not in uf_win_service_account.stdout"
+  notify: restart forwarder
 
 - name: Ensure a local app directory exists for our inputs.conf
   ansible.windows.win_file:
