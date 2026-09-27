@@ -1,0 +1,1 @@
+SELECT event_time, action_id, succeeded, server_principal_name, database_principal_name, target_server_principal_name, target_database_principal_name, database_name, statement, client_ip, application_name FROM sys.fn_get_audit_file('{{ item.audit_file_path }}', NULL, NULL) ORDER BY event_time ASC

@@ -1,0 +1,14 @@
+# Deployed by the splunk_indexer role to splunk_app_db_connect/local/db_connections.conf.
+# No secrets here -- a connection only references an identity by name
+# (see db_connections.conf.spec); the identity itself (which does hold the
+# password) is created through DB Connect's own REST API instead, since its
+# password field expects an already-encrypted value.
+{% for item in splunk_dbconnect_mssql_hosts %}
+[{{ item.name }}_mssql]
+connection_type = generic_mssql
+identity = {{ splunk_dbconnect_identity_name }}
+host = {{ item.host }}
+port = 1433
+database = master
+
+{% endfor %}

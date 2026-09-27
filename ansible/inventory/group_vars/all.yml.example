@@ -17,6 +17,31 @@ splunk_admin_password: "changeme"          # vault this in a real deployment
 splunk_addons_dir: /path/to/downloaded/addons   # directory of .tgz/.spl files
 splunk_receiving_port: 9997
 
+# --- splunk_indexer role: DB Connect / SQL Server telemetry ---
+# (monitoring rollout plan step 4 follow-up — see CLAUDE.md). This is the
+# CURRENT admin password (for REST calls against an already-running
+# instance), not splunk_admin_password above (that one's seed-only and left
+# blank after first start, per its own comment) — vault this in a real
+# deployment.
+splunk_dbconnect_admin_password: "changeme"
+# The dedicated svc-sqlmonitor SQL login's password — cyber-range generates
+# this the same way it generates svc_mssql_password.txt etc. (see that
+# repo's CLAUDE.md), so read it directly rather than duplicating it here.
+splunk_dbconnect_sqlmonitor_password: "{{ lookup('ansible.builtin.file', '/path/to/cyber-range/ansible/generated/svc_sqlmonitor_password.txt') | trim }}"
+# One entry per SQL Server host — the instance folder name in each path
+# differs by SQL Server version (confirmed live via
+# SERVERPROPERTY('InstanceDefaultLogPath')-adjacent paths on each host, not
+# guessed).
+splunk_dbconnect_mssql_hosts:
+  - name: sql1
+    host: "{{ hostvars['sql1'].ansible_host }}"
+    xe_file_path: 'C:\Program Files\Microsoft SQL Server\MSSQL13.MSSQLSERVER\MSSQL\Log\detection_sql_text*.xel'
+    audit_file_path: 'C:\SQLAudit\*.sqlaudit'
+  - name: sql2
+    host: "{{ hostvars['sql2'].ansible_host }}"
+    xe_file_path: 'C:\Program Files\Microsoft SQL Server\MSSQL16.MSSQLSERVER\MSSQL\Log\detection_sql_text*.xel'
+    audit_file_path: 'C:\SQLAudit\*.sqlaudit'
+
 # --- splunk_forwarder role ---
 # Only what's genuinely shared across every Linux forwarder (Zeek, the demo
 # box, and anything else in the splunk_forwarders group) belongs here.

@@ -29,3 +29,54 @@ splunk_deploy_zeek_sourcetype_mapping: true
 # splunk_uf_index (splunk_forwarder role) and splunk_uf_win_index
 # (splunk_forwarder_windows role).
 splunk_deploy_detection_content: true
+
+# Whether to configure Splunk DB Connect to pull the SQL Server telemetry
+# cyber-range's "SQL Server telemetry + Certificate Services auditing"
+# work (see that repo's CLAUDE.md) produces on sql1/sql2 -- the Extended
+# Events session (detection_sql_text) and the Server Audit
+# (detection_impersonation_audit) backing 4 of splunk-detections'
+# MSSQL detections. See CLAUDE.md's monitoring rollout plan step 4
+# follow-up for the full design and the permissions gotcha this hit.
+splunk_deploy_mssql_dbconnect: true
+
+# DB Connect needs a JVM to run its own task server -- confirmed live it
+# isn't bundled with Splunk Enterprise or the app itself (no `java` on
+# PATH at all until this is installed).
+splunk_dbconnect_java_package: openjdk-17-jre-headless
+
+# The Microsoft JDBC Driver for SQL Server -- also not bundled (DB
+# Connect's drivers/ directory ships with just a README, confirmed live).
+# generic_mssql (db_connection_types.conf) is the connection type built
+# for this driver -- the plain "mssql" type is deprecated (old jTDS
+# driver).
+splunk_dbconnect_jdbc_url: "https://github.com/microsoft/mssql-jdbc/releases/download/v12.8.1/mssql-jdbc-12.8.1.jre11.jar"
+splunk_dbconnect_jdbc_jar_name: mssql-jdbc-12.8.1.jre11.jar
+
+# REST credentials for configuring DB Connect via its own API
+# (servicesNS/.../db_connect/dbxproxy/*) -- identities/connections/inputs
+# are proper conf-backed knowledge objects (identities.conf/
+# db_connections.conf/db_inputs.conf), but the password field expects an
+# already-encrypted value, so they have to be created through this API
+# (which encrypts server-side) rather than templated directly like
+# everything else in this project.
+splunk_dbconnect_admin_user: admin
+splunk_dbconnect_admin_password: ""
+
+# The dedicated SQL Server login cyber-range creates for monitoring --
+# never svc-mssql or another in-range attack-target account.
+splunk_dbconnect_identity_name: svc_sqlmonitor
+splunk_dbconnect_sqlmonitor_username: svc-sqlmonitor
+splunk_dbconnect_sqlmonitor_password: ""
+
+# One entry per SQL Server host to pull telemetry from. The instance
+# folder name in each file path differs by SQL Server version
+# (MSSQL13.MSSQLSERVER on sql1's 2016, MSSQL16.MSSQLSERVER on sql2's
+# 2022) -- confirmed live via SERVERPROPERTY('InstanceDefaultLogPath')-
+# adjacent paths, not guessed. Left empty by default; real values live in
+# group_vars/all.yml (gitignored, see all.yml.example for the shape).
+splunk_dbconnect_mssql_hosts: []
+
+splunk_dbconnect_mssql_index: mssql
+splunk_dbconnect_mssql_xe_sourcetype: mssql_xe_text
+splunk_dbconnect_mssql_audit_sourcetype: mssql_audit
+splunk_dbconnect_mssql_poll_interval: 60

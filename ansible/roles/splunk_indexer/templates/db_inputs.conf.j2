@@ -1,0 +1,28 @@
+# Deployed by the splunk_indexer role to splunk_app_db_connect/local/db_inputs.conf.
+#
+# One xe_text + one audit input per SQL Server host -- see
+# mssql_xe_query.sql.j2/mssql_audit_query.sql.j2 in this same directory for
+# the actual queries, and CLAUDE.md's monitoring rollout plan step 4
+# follow-up for why each covers the detections it does.
+{% for item in splunk_dbconnect_mssql_hosts %}
+[{{ item.name }}_mssql_xe_text]
+connection = {{ item.name }}_mssql
+mode = rising
+tail_rising_column_name = event_time
+index_time_mode = current
+interval = {{ splunk_dbconnect_mssql_poll_interval }}
+index = {{ splunk_dbconnect_mssql_index }}
+sourcetype = {{ splunk_dbconnect_mssql_xe_sourcetype }}
+query = {% include 'mssql_xe_query.sql.j2' %}
+
+[{{ item.name }}_mssql_audit]
+connection = {{ item.name }}_mssql
+mode = rising
+tail_rising_column_name = event_time
+index_time_mode = current
+interval = {{ splunk_dbconnect_mssql_poll_interval }}
+index = {{ splunk_dbconnect_mssql_index }}
+sourcetype = {{ splunk_dbconnect_mssql_audit_sourcetype }}
+query = {% include 'mssql_audit_query.sql.j2' %}
+
+{% endfor %}

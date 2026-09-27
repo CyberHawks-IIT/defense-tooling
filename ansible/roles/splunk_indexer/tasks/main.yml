@@ -159,6 +159,121 @@
         mode: "0644"
       notify: restart splunk
 
+- name: Configure Splunk DB Connect for SQL Server telemetry (see CLAUDE.md, monitoring rollout plan step 4 follow-up)
+  when: splunk_deploy_mssql_dbconnect
+  block:
+    - name: Install a JRE for DB Connect's task server
+      ansible.builtin.apt:
+        name: "{{ splunk_dbconnect_java_package }}"
+        state: present
+      register: dbx_java_install
+
+    - name: Download the Microsoft JDBC Driver for SQL Server
+      ansible.builtin.get_url:
+        url: "{{ splunk_dbconnect_jdbc_url }}"
+        dest: "{{ splunk_home }}/etc/apps/splunk_app_db_connect/drivers/{{ splunk_dbconnect_jdbc_jar_name }}"
+        mode: "0644"
+      register: dbx_jdbc_download
+
+    # DB Connect's own task server (running as {{ ansible_user }}, same as
+    # splunkd itself, not root) needs write access under its own app
+    # directory at runtime, for its internal secrets KV store collection
+    # specifically. Confirmed live: without this, every identities/
+    # connections/inputs REST call below fails -- splunkd.log shows
+    # "Cannot open file for create or append: .../metadata/local.meta:
+    # Permission denied", which surfaces as an HTTP 500 from DB Connect's
+    # task server (visible to us as a 503 from the proxying REST call).
+    # This is the one app in this role that needs it -- dt_detection_content
+    # and Splunk_TA_zeek are read-only knowledge objects Splunk never
+    # writes back into at runtime, so they don't hit this.
+    - name: Ensure DB Connect's app directory is owned by the splunkd runtime user
+      ansible.builtin.file:
+        path: "{{ splunk_home }}/etc/apps/splunk_app_db_connect"
+        state: directory
+        recurse: true
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+
+    - name: Restart Splunk so DB Connect picks up Java and the new driver
+      ansible.builtin.command: "{{ splunk_home }}/bin/splunk restart"
+      when: dbx_java_install.changed or dbx_jdbc_download.changed
+      changed_when: true
+
+    - name: Wait for DB Connect's task server to accept REST requests
+      ansible.builtin.uri:
+        url: "https://localhost:8089/servicesNS/nobody/splunk_app_db_connect/db_connect/dbxproxy/identities"
+        method: GET
+        user: "{{ splunk_dbconnect_admin_user }}"
+        password: "{{ splunk_dbconnect_admin_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200]
+      register: dbx_ready
+      until: dbx_ready.status == 200
+      retries: 20
+      delay: 5
+
+    - name: Check whether the svc_sqlmonitor identity already exists
+      ansible.builtin.uri:
+        url: "https://localhost:8089/servicesNS/nobody/splunk_app_db_connect/db_connect/dbxproxy/identities"
+        method: GET
+        user: "{{ splunk_dbconnect_admin_user }}"
+        password: "{{ splunk_dbconnect_admin_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        return_content: true
+      register: dbx_identities
+
+    # identities.conf.spec documents `password` as "the encrypted value" --
+    # unlike every other knowledge object this project templates directly,
+    # DB Connect expects to receive the PLAINTEXT password itself only
+    # through this API (which encrypts it server-side before writing
+    # identities.conf); there's no supported way to pre-compute and
+    # template the encrypted value ourselves.
+    - name: Create the svc_sqlmonitor DB Connect identity
+      ansible.builtin.uri:
+        url: "https://localhost:8089/servicesNS/nobody/splunk_app_db_connect/db_connect/dbxproxy/identities"
+        method: POST
+        user: "{{ splunk_dbconnect_admin_user }}"
+        password: "{{ splunk_dbconnect_admin_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        body_format: json
+        body:
+          name: "{{ splunk_dbconnect_identity_name }}"
+          username: "{{ splunk_dbconnect_sqlmonitor_username }}"
+          password: "{{ splunk_dbconnect_sqlmonitor_password }}"
+        status_code: [200, 201]
+      when: (dbx_identities.json | selectattr('name', 'equalto', splunk_dbconnect_identity_name) | list | length) == 0
+
+    # Unlike the identity above, connections and inputs hold no secrets --
+    # a connection only references an identity by name, and every db_inputs
+    # field is plain config -- so both are just conf-backed knowledge
+    # objects like everything else this project templates directly.
+    # Confirmed live: DB Connect's own dbxproxy REST validator for inputs
+    # rejects field names copied straight from db_inputs.conf.spec (e.g.
+    # tail_rising_column_name/index_time_mode) with opaque "must not be
+    # null"/"Invalid index time mode" errors regardless of casing tried --
+    # its minified frontend bundle uses yet another set of names
+    # (risingColumnName, etc.) not documented anywhere. Writing the conf
+    # files directly sidesteps that validator entirely and is what
+    # actually got these two inputs running.
+    - name: Deploy splunk_app_db_connect/local/db_connections.conf
+      ansible.builtin.template:
+        src: db_connections.conf.j2
+        dest: "{{ splunk_home }}/etc/apps/splunk_app_db_connect/local/db_connections.conf"
+        mode: "0644"
+        owner: "{{ ansible_user }}"
+      notify: restart splunk
+
+    - name: Deploy splunk_app_db_connect/local/db_inputs.conf
+      ansible.builtin.template:
+        src: db_inputs.conf.j2
+        dest: "{{ splunk_home }}/etc/apps/splunk_app_db_connect/local/db_inputs.conf"
+        mode: "0644"
+        owner: "{{ ansible_user }}"
+      notify: restart splunk
+
 - name: Deploy the Zeek dynamic-sourcetype mapping (requires Splunk_TA_zeek)
   when: splunk_deploy_zeek_sourcetype_mapping
   block:

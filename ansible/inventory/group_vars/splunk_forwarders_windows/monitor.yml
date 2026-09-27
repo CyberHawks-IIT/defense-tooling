@@ -4,9 +4,23 @@
 # plan step 3). Sysmon's renderXml/sourcetype override is step 4's fix —
 # see CLAUDE.md's monitoring rollout plan step 4 for why it's the one
 # channel here that needs it.
+#
+# splunk_uf_win_security_whitelist_extra lets a single host extend the
+# Security channel's own whitelist (e.g. ca's ADCS event IDs, see
+# host_vars/ca.yml) without duplicating the [WinEventLog://Security] stanza
+# -- unlike splunk_uf_win_monitor_channels_extra below, which is for
+# genuinely new channels (Directory Service on dc1/dc2), a *second* entry
+# for a channel that's already in the common list would produce two
+# [WinEventLog://Security] stanzas in the same inputs.conf, which Splunk
+# won't merge the way this needs. Defaults to empty for every host except
+# the ones that set it themselves.
+splunk_uf_win_security_whitelist_extra: ""
+
 splunk_uf_win_monitor_channels_common:
   - channel: Security
-    whitelist: "1102,4624,4625,4656,4657,4662,4663,4697,4698,4720,4728,4732,4741,4756,4768,4769,4771,5136,5137,5145"
+    whitelist: >-
+      1102,4624,4625,4656,4657,4662,4663,4697,4698,4720,4728,4732,4741,4756,4768,4769,4771,5136,5137,5145{{
+      "," + splunk_uf_win_security_whitelist_extra if splunk_uf_win_security_whitelist_extra else "" }}
   - channel: System
     whitelist: "104,7040,7045"
   - channel: Microsoft-Windows-Sysmon/Operational

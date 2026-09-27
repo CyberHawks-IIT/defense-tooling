@@ -39,10 +39,15 @@ Every gotcha below was hit for real, not anticipated in the abstract.
   `transforms.conf` override are all scripted. Still manual: actually
   *downloading* the installer and add-ons (see `docs/add-ons.md`).
   **Monitoring rollout plan step 4 (2026-09-27): done.** Deploys a new
-  `dt_detection_content` app — the `zeek`/`windows`/`linux` indexes, macros,
-  eventtypes, and a `known_range_hosts` lookup supporting
+  `dt_detection_content` app — the `zeek`/`windows`/`linux`/`mssql`/`iis`
+  indexes, macros, eventtypes, and a `known_range_hosts` lookup supporting
   `splunk-detections/detections/backlog.md` — see "Organizing ingested data
   for step 5" below for the full design and what was confirmed vs. added.
+  **Also now deploys Splunk DB Connect** (Java + JDBC driver + identity/
+  connection/input config) for the SQL Server telemetry follow-up — see
+  "IIS, SQL Server, and CA ingestion" below; the config is correct and
+  applied, but not yet flowing due to a network-reachability blocker
+  unrelated to this role.
 - **Splunk forwarder role (Linux)**: built and verified — installs the UF,
   configures `inputs.conf`/`outputs.conf`, confirmed live end-to-end
   (established TCP connection, real throughput in the indexer's
@@ -67,6 +72,9 @@ Every gotcha below was hit for real, not anticipated in the abstract.
   errors after the Event Log Readers fix below. **Step 4 fixed the
   sourcetype itself (2026-09-27)** — `forwarded_logs` is gone; see
   "Organizing ingested data for step 5" below for why and what replaced it.
+  **Also gained plain file monitoring (2026-09-27)** — `splunk_uf_win_monitor_files`,
+  `monitor://` stanzas alongside the existing `WinEventLog://` ones, used
+  for IIS logs on web/ca; see "IIS, SQL Server, and CA ingestion" below.
 - **Proxmox mirror script**: built and verified — `tc` ingress mirroring
   from a router VM's interfaces to a sensor's capture NIC, persisted via
   hookscripts on **both** the router VM and the sensor CT (a sensor restart
@@ -593,17 +601,136 @@ is documented in `cyber-range`'s CLAUDE.md under "Monitoring rollout plan"
   membership, a broken home directory on the zeek sensor CT). Full detail in
   "Organizing ingested data for step 5" above.
 
+## IIS, SQL Server, and CA ingestion (2026-09-27 follow-up)
+
+Once `cyber-range` turned on SQL Server Audit/Extended Events and
+Certificate Services auditing (that repo's CLAUDE.md, "SQL Server
+telemetry + Certificate Services auditing"), this repo picked up all three
+open items above. Two are fully live; one has a real blocker.
+
+**IIS (web + ca): done, no cyber-range work needed.** Confirmed live before
+touching anything: IIS logging was already on by default on both hosts
+(W3C extended format, already capturing every field the portal/ESC8
+detections need) — this was always a `defense-tooling`-side forwarding gap,
+not a missing log source. Added plain file monitoring
+(`splunk_uf_win_monitor_files`, new in `splunk_forwarder_windows` —
+`monitor://` stanzas alongside the existing `WinEventLog://` ones) for
+`C:\inetpub\logs\LogFiles\W3SVC1\*.log` on both hosts, sourcetype
+`ms:iis:default` (Splunk_TA_microsoft-iis's own stanza for this exact log
+format), landing in a new dedicated `iis` index. Verified live: real events
+indexed, correct sourcetype. **Known field-extraction gap:** this box's IIS
+sites use a customized, non-default W3C field order/set (confirmed via
+`Get-WebConfigurationProperty`), and the TA's `ms:iis:default` field
+extraction assumes the standard field layout — the `host` field specifically
+comes back wrong (`EVAL-host = coalesce(s_computername, host)` picks up a
+mis-aligned column). The real host is still in `_raw` and correctly tagged
+in Splunk's actual metadata; only the TA's own computed display field is
+affected. Leave this for step 5 to work around (a custom field-extraction
+override, or normalizing the site's log field order to match what the TA
+expects) rather than fixing blind now.
+
+**Certificate Services auditing (ca): done.** Confirmed live: `AuditFilter`
+registry value present (`7f`/127) and `Certification Services` audit
+subcategory shows `Success and Failure`. Added the ADCS event ID range
+(4886-4899) to ca's Security whitelist — but as an *extension* of the
+existing whitelist, not a second channel entry: `splunk_uf_win_monitor_channels`
+is a flat list keyed by channel name, and dc1/dc2's Directory Service
+addition (a genuinely new channel) is a different shape from extending a
+channel *already* in the common list. A naive copy of that pattern would
+have produced two `[WinEventLog://Security]` stanzas in the same
+`inputs.conf` — caught before it shipped. Fixed with a new
+`splunk_uf_win_security_whitelist_extra` var that
+`group_vars/splunk_forwarders_windows/monitor.yml`'s own Security whitelist
+definition appends inline, defaulting to empty for every host except the
+ones (just ca, so far) that set it. Verified live: `sc.exe`-equivalent
+`auditpol`/`certutil -getreg` confirms the settings, and the whitelist now
+resolves correctly per-host (`ansible -m debug` diff between ca and any
+other host).
+
+**SQL Server telemetry (sql1/sql2): blocked on network reachability, not
+configuration.** Everything up through Splunk DB Connect itself is built
+and confirmed correct:
+- A JRE (`openjdk-17-jre-headless`) and the Microsoft JDBC Driver for SQL
+  Server, neither bundled with DB Connect (confirmed live: no `java` on
+  PATH, `drivers/` had only a README) — both installed by the
+  `splunk_indexer` role now (`splunk_deploy_mssql_dbconnect`).
+- **Gotcha, same class as the Windows Event Log Readers one from step 3:**
+  DB Connect's own task server (running as the same non-root user as
+  splunkd) needs write access under its own app directory at runtime, for
+  an internal secrets KV store collection — confirmed live via
+  `splunkd.log`: `Cannot create directory: .../splunk_app_db_connect/local:
+  Permission denied` → 500 from the task server → surfaced to us as a 503
+  on every DB Connect REST call. Every directory this role (and
+  `dt_detection_content`) creates inherits `root:root` ownership from this
+  inventory's blanket `ansible_become: true`; this is the one app that
+  actually needs write access back, so it's the one place that needed an
+  explicit recursive `owner: {{ ansible_user }}` fix.
+- The identity (`svc_sqlmonitor`) is created through DB Connect's own REST
+  API (`db_connect/dbxproxy/identities`), since `identities.conf.spec`
+  documents the password field as "the encrypted value" — there's no
+  supported way to pre-compute that ourselves, unlike everything else this
+  project templates directly.
+- Connections and inputs, by contrast, hold no secrets (a connection just
+  references the identity by name), so they're plain templated
+  `db_connections.conf`/`db_inputs.conf` — **deliberately not** created
+  through DB Connect's REST API for inputs, even though the identity is:
+  confirmed live that the REST validator for inputs rejects the exact field
+  names documented in `db_inputs.conf.spec` (`tail_rising_column_name`,
+  `index_time_mode`) with opaque `"must not be null"`/`"Invalid index time
+  mode"` errors regardless of casing tried, and its own minified frontend
+  bundle uses yet a *third*, undocumented set of names
+  (`rising_column_name`, `timestampType`) that aren't in any shipped spec
+  file. Writing the conf files directly sidesteps that validator entirely,
+  and — confirmed live via `splunk_app_db_connect_server.log` — it's
+  genuinely picked up and scheduled by the task server's Quartz-based
+  job runner the same as a REST-created input would be.
+- Query design: one Extended Events (`detection_sql_text`) query per host
+  covering `xp_cmdshell`/`xp_dirtree`/linked-server execution in one shot
+  (all three arrive as `rpc_completed`/`sql_batch_completed` with full
+  statement text in the `sql_text` action — confirmed against real
+  captured events, including `cyber-range`'s own verification calls), and
+  one audit (`detection_impersonation_audit`) query per host for `EXECUTE
+  AS` impersonation. New `mssql` index, `mssql_xe_text`/`mssql_audit`
+  sourcetypes (custom — `Splunk_TA_microsoft-sqlserver` has a real
+  `mssql:audit` sourcetype, but its field mapping expects an `action_name`
+  field the raw `sys.fn_get_audit_file()` output doesn't have under that
+  name, so a custom sourcetype using the TVF's actual column names was
+  safer than guessing at an undocumented translation), new `dt_sql_*`
+  eventtypes matching the four `backlog.md` rows exactly.
+- **The actual blocker, confirmed live:** raw TCP to `10.0.2.6:1433` and
+  `10.0.2.7:1433` (sql1/sql2) times out from the indexer (10.0.10.2,
+  `defense` vnet) — `Connect timed out. ... Make sure that TCP connections
+  to the port are not blocked by a firewall`, caught directly in DB
+  Connect's own job-run log. Every other cross-segment data path in this
+  project flows `ad`/`demo` → `defense` (each host's own Splunk UF
+  connecting *out* to the indexer's `:9997`) — this is the first one that
+  needs the *reverse* direction, `defense` → `ad`, which nothing so far has
+  established is actually permitted. This needs a decision, not a config
+  fix on this repo's side alone:
+  1. Get a pfSense rule added allowing `defense` (10.0.10.0/24) → `ad`
+     (10.0.2.0/24) on tcp/1433, and the DB Connect pipeline above starts
+     working as built with no further changes.
+  2. Or abandon the indexer-pull model for these two hosts specifically,
+     and instead have each host's *own* Splunk UF (already installed,
+     already connecting outbound) forward the XE/audit output as a plain
+     monitored file — would need a local scheduled task on sql1/sql2 to
+     periodically dump query results to a text file first, since the raw
+     `.xel`/`.sqlaudit` files are binary and can't be monitored directly.
+  Everything above (identity/connection/input config) is unaffected by
+  which way this goes if (1) is chosen; it's a rebuild from that layer up
+  if (2) is chosen instead. Left unresolved pending that decision — the
+  role changes are in place and harmless either way (nothing indexes until
+  a connection can actually succeed).
+
 ## Open items
 
-1. IIS logs (web portal weak-password, ADCS ESC8 web enrollment) and SQL
-   Server Audit/Extended Events aren't being forwarded — neither log source
-   is actually turned on yet (`cyber-range`'s `detection_logging` role
-   doesn't cover either). Newly confirmed during step 4: the CA's own
-   certification-authority operational log (needed for the ADCS RPC/ICPR
-   detections) is in the same boat — not a `defense-tooling` problem to fix
-   alone, since the log source itself has to exist on the `cyber-range` side
-   first. Add the corresponding `dt_detection_content` macros/eventtypes
-   once any of these three actually start flowing.
-2. `dt_vss_shadow_copy_created` (see "Organizing ingested data for step 5"
+1. `dt_vss_shadow_copy_created` (see "Organizing ingested data for step 5"
    above) is unconfirmed — built from the documented WMI-Activity/Operational
    message format, not verified against a real triggered event.
+2. SQL Server telemetry (sql1/sql2) is configured but not flowing — see
+   "IIS, SQL Server, and CA ingestion" above for the network-reachability
+   blocker and the two ways to resolve it.
+3. IIS's `host` field comes back wrong in Splunk (see "IIS, SQL Server, and
+   CA ingestion" above) — a field-extraction mismatch between this box's
+   customized W3C log format and what `Splunk_TA_microsoft-iis` assumes,
+   not a data-loss issue (the real host is still in `_raw`).

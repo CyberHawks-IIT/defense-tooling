@@ -1,0 +1,17 @@
+# IIS is already logging by default on this host (confirmed live: W3C
+# extended format on the Default Web Site, which the AD CS Web Enrollment
+# "CertSrv" virtual directory sits under) — nothing needed on cyber-range's
+# side for this one, unlike SQL Server/CA auditing. See CLAUDE.md's
+# monitoring rollout plan step 4 follow-up.
+splunk_uf_win_monitor_files:
+  - path: 'C:\inetpub\logs\LogFiles\W3SVC1\*.log'
+    sourcetype: "ms:iis:default"
+    index: iis
+
+# Certificate Services auditing (cyber-range's "SQL Server telemetry +
+# Certificate Services auditing" work) lands in ca's own Security log as
+# event IDs 4886-4899 — extends the common Security whitelist rather than
+# adding a second [WinEventLog://Security] stanza, see
+# splunk_uf_win_security_whitelist_extra's own comment in
+# group_vars/splunk_forwarders_windows/monitor.yml.
+splunk_uf_win_security_whitelist_extra: "4886,4887,4888,4889,4890,4891,4892,4893,4894,4895,4896,4897,4898,4899"

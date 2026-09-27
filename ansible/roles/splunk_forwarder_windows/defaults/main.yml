@@ -58,6 +58,15 @@ splunk_uf_win_indexer_port: 9997
 #       sourcetype: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
 splunk_uf_win_monitor_channels: []
 
+# Plain file monitoring (monitor:// stanzas), for sources that aren't
+# WinEventLog channels at all -- currently just IIS logs on web/ca. Same
+# explicit-allowlist spirit as splunk_uf_win_monitor_channels and the Linux
+# role's splunk_uf_monitor_files. Each entry is a dict:
+#   path:       a monitor:// path/glob, e.g. 'C:\inetpub\logs\LogFiles\W3SVC1\*.log'
+#   sourcetype: required.
+#   index:      optional, defaults to splunk_uf_win_index.
+splunk_uf_win_monitor_files: []
+
 # See CLAUDE.md's monitoring rollout plan step 4 for why this isn't "main" —
 # real deployments set this to "windows" (group_vars/splunk_forwarders_windows/).
 splunk_uf_win_index: main

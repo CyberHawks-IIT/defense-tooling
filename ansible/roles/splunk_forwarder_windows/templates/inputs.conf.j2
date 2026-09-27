@@ -13,3 +13,10 @@ whitelist = {{ ch.whitelist }}
 {% endif %}
 
 {% endfor %}
+{% for f in splunk_uf_win_monitor_files %}
+[monitor://{{ f.path }}]
+disabled = 0
+index = {{ f.index | default(splunk_uf_win_index) }}
+sourcetype = {{ f.sourcetype }}
+
+{% endfor %}

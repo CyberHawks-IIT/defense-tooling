@@ -1,0 +1,9 @@
+# IIS is already logging by default on this host (confirmed live: W3C
+# extended format, capturing the fields backlog.md's web-portal detection
+# needs) — nothing needed on cyber-range's side for this one, unlike SQL
+# Server/CA auditing. See CLAUDE.md's monitoring rollout plan step 4
+# follow-up.
+splunk_uf_win_monitor_files:
+  - path: 'C:\inetpub\logs\LogFiles\W3SVC1\*.log'
+    sourcetype: "ms:iis:default"
+    index: iis
