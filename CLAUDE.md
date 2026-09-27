@@ -103,6 +103,36 @@ Verified by actually rebooting the sensor (`pct reboot 511`) twice in a row
 and confirming `tc filter show` came back correctly bound with zero manual
 intervention both times.
 
+### Splunk's own boot-start defaults to root, which then fails to actually start
+
+`splunk enable boot-start` (no `-user` flag) generates an init script/systemd
+shim that launches splunkd as **root** — and splunkd refuses to actually run
+as root (prints the "deprecated" message and exits 1) unless `--run-as-root`
+is also passed, which we don't want. The result: `systemctl is-enabled`
+correctly reports the service as enabled, but every boot ends in `Active:
+failed (Result: exit-code)` and splunkd never comes up — confirmed live on
+the indexer after a container restart. The fix is `splunk enable boot-start
+-user <the account splunkd should run as> --accept-license`; the
+`splunk_indexer` role now passes `-user {{ ansible_user }}`.
+
+This only bit the **indexer** — the Universal Forwarder's `.deb` postinst
+handles this correctly on its own, installing a real systemd unit
+(`SplunkForwarder.service`) running as a dedicated `splunkfwd` user with no
+extra configuration needed (confirmed: it survived a full reboot with zero
+intervention). Only the indexer's older LSB-style boot-start integration has
+this trap.
+
+Related, smaller trap in the same area: any task that runs `splunk start`/
+`splunk restart` directly (not through systemd) hits the same root-refusal
+if Ansible's `become: true` is in effect for that task — `splunkd` silently
+fails to start with no further output, easy to mistake for the command
+having simply done nothing. The first-time-start tasks and the indexer's
+restart handler in both `splunk_indexer` and `splunk_forwarder` now set
+`become: false` for exactly this reason; the forwarder's restart handler
+goes through `systemctl restart SplunkForwarder.service` instead, since
+calling the CLI directly as the connecting user can't signal a process
+owned by `splunkfwd` anyway.
+
 ### Zeek doesn't come back up on its own after a reboot
 
 Unlike the Universal Forwarder (its `.deb` installs its own systemd unit),

@@ -1,4 +1,9 @@
 ---
 - name: restart forwarder
-  ansible.builtin.command: "{{ splunk_uf_home }}/bin/splunk restart"
-  changed_when: true
+  # The UF's .deb postinst creates a real systemd unit (SplunkForwarder.service)
+  # running as a dedicated splunkfwd user -- restart through systemd, not by
+  # calling the splunk binary directly as the connecting user, which can't
+  # signal a process owned by a different user.
+  ansible.builtin.systemd:
+    name: SplunkForwarder.service
+    state: restarted

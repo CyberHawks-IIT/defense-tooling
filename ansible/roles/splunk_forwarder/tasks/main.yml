@@ -47,6 +47,12 @@
     --seed-passwd {{ splunk_uf_admin_password | quote }}
   when: not uf_initialized.stat.exists
   changed_when: true
+  become: false  # see the equivalent note in splunk_indexer/tasks/main.yml —
+                 # splunkd refuses to actually start as root. The UF's own
+                 # .deb postinst installs a proper systemd unit running as a
+                 # dedicated splunkfwd user for ongoing boot-start (verified
+                 # live: it survives a reboot with no extra config needed),
+                 # so this only matters for this first manual start.
 
 - name: Ensure a local app directory exists for our inputs.conf
   ansible.builtin.file:

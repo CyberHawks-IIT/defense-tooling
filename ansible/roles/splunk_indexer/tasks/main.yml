@@ -41,9 +41,22 @@
     --seed-passwd {{ splunk_admin_password | quote }}
   when: not splunk_initialized.stat.exists
   changed_when: true
+  become: false  # run as the connecting user, NOT root -- splunkd refuses
+                 # to actually start as root (fails silently under `become`,
+                 # only a "deprecated" warning with no further output) unless
+                 # --run-as-root is also passed, which we deliberately don't
+                 # want since splunkd should run as ansible_user long-term.
 
-- name: Enable boot-start
-  ansible.builtin.command: "{{ splunk_home }}/bin/splunk enable boot-start --accept-license"
+# `enable boot-start` itself needs root (it writes /etc/init.d and registers
+# with update-rc.d), but -user here controls who splunkd actually runs AS
+# once started by that init script -- without it, the generated systemd/init
+# integration launches splunkd as root, which then fails outright on every
+# boot (confirmed live: `systemctl status splunk` showed a clean "failed,
+# exit-code 1" with the same root-deprecation message, and never retried).
+- name: Enable boot-start (running as {{ ansible_user }}, not root)
+  ansible.builtin.command: >
+    {{ splunk_home }}/bin/splunk enable boot-start
+    -user {{ ansible_user }} --accept-license
   register: boot_start_result
   changed_when: "'is already configured to start' not in boot_start_result.stdout"
 
