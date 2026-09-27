@@ -45,9 +45,10 @@ Every gotcha below was hit for real, not anticipated in the abstract.
   for step 5" below for the full design and what was confirmed vs. added.
   **Also now deploys Splunk DB Connect** (Java + JDBC driver + identity/
   connection/input config) for the SQL Server telemetry follow-up — see
-  "IIS, SQL Server, and CA ingestion" below; the config is correct and
-  applied, but not yet flowing due to a network-reachability blocker
-  unrelated to this role.
+  "IIS, SQL Server, and CA ingestion" below. **Confirmed fully live
+  (2026-09-27):** all 4 inputs (`sql1`/`sql2` × `_mssql_xe_text`/`_mssql_audit`)
+  scheduled, running, and indexing real rows into `index=mssql` with
+  `errorCount=0`.
 - **Splunk forwarder role (Linux)**: built and verified — installs the UF,
   configures `inputs.conf`/`outputs.conf`, confirmed live end-to-end
   (established TCP connection, real throughput in the indexer's
@@ -647,9 +648,17 @@ ones (just ca, so far) that set it. Verified live: `sc.exe`-equivalent
 resolves correctly per-host (`ansible -m debug` diff between ca and any
 other host).
 
-**SQL Server telemetry (sql1/sql2): blocked on network reachability, not
-configuration.** Everything up through Splunk DB Connect itself is built
-and confirmed correct:
+**SQL Server telemetry (sql1/sql2): done, fully live.** Was blocked on
+network reachability; the user added a pfSense rule allowing `defense`
+(10.0.10.0/24) → `ad` (10.0.2.0/24) on tcp/1433, and after that a further
+chain of DB Connect-specific issues surfaced and got fixed (see "DB Connect
+rising-mode gotchas" below for the four that came after the network fix).
+Confirmed live end-to-end: `index=mssql | stats count by source,
+sourcetype` shows real, growing counts on all four inputs
+(`sql1_mssql_xe_text`, `sql1_mssql_audit`, `sql2_mssql_xe_text`,
+`sql2_mssql_audit`), and the DB Connect server log shows
+`status=success`/`errorCount=0` on every scheduled run. Everything up
+through Splunk DB Connect itself is built and confirmed correct:
 - A JRE (`openjdk-17-jre-headless`) and the Microsoft JDBC Driver for SQL
   Server, neither bundled with DB Connect (confirmed live: no `java` on
   PATH, `drivers/` had only a README) — both installed by the
@@ -697,40 +706,75 @@ and confirmed correct:
   name, so a custom sourcetype using the TVF's actual column names was
   safer than guessing at an undocumented translation), new `dt_sql_*`
   eventtypes matching the four `backlog.md` rows exactly.
-- **The actual blocker, confirmed live:** raw TCP to `10.0.2.6:1433` and
-  `10.0.2.7:1433` (sql1/sql2) times out from the indexer (10.0.10.2,
+- **The network blocker, now resolved:** raw TCP to `10.0.2.6:1433` and
+  `10.0.2.7:1433` (sql1/sql2) timed out from the indexer (10.0.10.2,
   `defense` vnet) — `Connect timed out. ... Make sure that TCP connections
   to the port are not blocked by a firewall`, caught directly in DB
   Connect's own job-run log. Every other cross-segment data path in this
   project flows `ad`/`demo` → `defense` (each host's own Splunk UF
-  connecting *out* to the indexer's `:9997`) — this is the first one that
-  needs the *reverse* direction, `defense` → `ad`, which nothing so far has
-  established is actually permitted. This needs a decision, not a config
-  fix on this repo's side alone:
-  1. Get a pfSense rule added allowing `defense` (10.0.10.0/24) → `ad`
-     (10.0.2.0/24) on tcp/1433, and the DB Connect pipeline above starts
-     working as built with no further changes.
-  2. Or abandon the indexer-pull model for these two hosts specifically,
-     and instead have each host's *own* Splunk UF (already installed,
-     already connecting outbound) forward the XE/audit output as a plain
-     monitored file — would need a local scheduled task on sql1/sql2 to
-     periodically dump query results to a text file first, since the raw
-     `.xel`/`.sqlaudit` files are binary and can't be monitored directly.
-  Everything above (identity/connection/input config) is unaffected by
-  which way this goes if (1) is chosen; it's a rebuild from that layer up
-  if (2) is chosen instead. Left unresolved pending that decision — the
-  role changes are in place and harmless either way (nothing indexes until
-  a connection can actually succeed).
+  connecting *out* to the indexer's `:9997`); this was the first one
+  needing the *reverse* direction, `defense` → `ad`, which nothing so far
+  had established was permitted. Fixed by the user adding a pfSense rule
+  allowing `defense` (10.0.10.0/24) → `ad` (10.0.2.0/24) on tcp/1433 —
+  chosen over the alternative (abandoning indexer-pull for a per-host
+  scheduled-dump-to-file model) since the pull model was otherwise fully
+  built and this was the only thing stopping it working as designed.
+  Confirmed via raw `bash -c "</dev/tcp/host/1433"` before/after.
+
+### DB Connect rising-mode gotchas (found after the network fix)
+
+Four more issues surfaced in sequence once the network path was open, each
+only visible after the previous one was fixed — none were reachable while
+the connection itself was timing out, which is why they weren't caught
+during the original build-out:
+
+1. **No default checkpoint.** DB Connect's `rising` mode has no "start from
+   scratch" behavior — first run of every input failed with
+   `INPUT_CHECKPOINT_READ_ERROR`/"no init checkpoint found for input". Fixed
+   by adding `tail_rising_column_init_ckpt_value = {"value": "1900-01-01
+   00:00:00.000", "columnType": 93}` to every input stanza in
+   `db_inputs.conf.j2` — `columnType: 93` is `java.sql.Types.TIMESTAMP`,
+   required (not optional) per the frontend bundle's own validation.
+2. **The rising column must be the query's first SELECT-list column.** The
+   XE query originally had `event_time` second — DB Connect's argument
+   binder assumes a fixed position and threw `NullPointerException:
+   Cannot invoke "java.lang.Integer.intValue()"` in
+   `DefaultArgumentRegisterImpl.registerArgumentsWithType`. Fixed by
+   reordering the XE query's SELECT list (the audit query already had
+   `event_time` first).
+3. **The checkpoint isn't auto-applied — the query needs a literal
+   `WHERE <col> > ? ORDER BY <col> ASC`.** Jobs reported `status=success`
+   with `readCount: 0` even with real matching rows in SQL Server. DB
+   Connect's non-optimised rising mode binds the checkpoint as an actual
+   JDBC `PreparedStatement` parameter against a placeholder already present
+   in the query text — it does not append any filter itself. Confirmed via
+   the frontend bundle's `getSqlContent`. Both `mssql_xe_query.sql.j2` and
+   `mssql_audit_query.sql.j2` now end in `WHERE event_time > ? ORDER BY
+   event_time ASC`; the XE query wraps its `sys.fn_xe_file_target_read_file`
+   call in a subquery first since `event_time` there is a computed XML
+   `.value()` alias that can't be referenced in a same-level `WHERE`.
+4. **Assumed audit columns that don't exist in this SQL Server version.**
+   `sql1_mssql_audit` alone kept failing with `SQLServerException: Invalid
+   column name 'client_ip'` even after the other three inputs were reading
+   real rows — the query had assumed `client_ip`/`application_name` columns
+   for `sys.fn_get_audit_file()` that this version's actual output doesn't
+   have. Fixed by querying `SELECT TOP 0 * FROM sys.fn_get_audit_file(...)`
+   directly via `sqlcmd` to get the real column list before rewriting the
+   query — same lesson as the IIS field-order gap above: verify live,
+   don't assume from memory/docs.
+
+General takeaway carried into future DB Connect work: its rising-mode
+behavior is inconsistently documented across `db_inputs.conf.spec`, its
+REST API's validator, and its own frontend bundle — treat all three as
+unreliable individually and verify behavior live (job logs, actual
+`readCount`) rather than trusting any one of them.
 
 ## Open items
 
 1. `dt_vss_shadow_copy_created` (see "Organizing ingested data for step 5"
    above) is unconfirmed — built from the documented WMI-Activity/Operational
    message format, not verified against a real triggered event.
-2. SQL Server telemetry (sql1/sql2) is configured but not flowing — see
-   "IIS, SQL Server, and CA ingestion" above for the network-reachability
-   blocker and the two ways to resolve it.
-3. IIS's `host` field comes back wrong in Splunk (see "IIS, SQL Server, and
+2. IIS's `host` field comes back wrong in Splunk (see "IIS, SQL Server, and
    CA ingestion" above) — a field-extraction mismatch between this box's
    customized W3C log format and what `Splunk_TA_microsoft-iis` assumes,
    not a data-loss issue (the real host is still in `_raw`).

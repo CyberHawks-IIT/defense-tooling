@@ -3,12 +3,20 @@
 # (see db_connections.conf.spec); the identity itself (which does hold the
 # password) is created through DB Connect's own REST API instead, since its
 # password field expects an already-encrypted value.
+#
+# customizedJdbcUrl (not the plain host/port/database fields, which build
+# an unencrypted URL via generic_mssql's own jdbcUrlFormat) is required here
+# -- confirmed live: the Microsoft JDBC driver defaults `encrypt` to true
+# regardless of which URL template is used unless the connection string
+# says otherwise, so the "unencrypted" template alone still attempted a TLS
+# handshake and failed cert validation against sql1/sql2's self-signed
+# default cert (PKIX path building failed). `encrypt=false` opts back out
+# of that default explicitly; there's no dedicated on/off field for it in
+# db_connections.conf.spec.
 {% for item in splunk_dbconnect_mssql_hosts %}
 [{{ item.name }}_mssql]
 connection_type = generic_mssql
 identity = {{ splunk_dbconnect_identity_name }}
-host = {{ item.host }}
-port = 1433
-database = master
+customizedJdbcUrl = jdbc:sqlserver://{{ item.host }}:1433;databaseName=master;selectMethod=cursor;encrypt=false
 
 {% endfor %}
