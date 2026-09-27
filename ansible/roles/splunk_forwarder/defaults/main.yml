@@ -12,10 +12,11 @@ splunk_uf_home: /opt/splunkforwarder
 splunk_uf_indexer_host: ""
 splunk_uf_indexer_port: 9997
 
-# What to monitor and how to type it. sourcetype here is deliberately a
-# placeholder — pair this with the splunk_indexer role's dynamic sourcetype
-# mapping (or write your own index-time transform) if you need real
-# per-file typing instead of one blanket sourcetype.
+# What to monitor and how to type it. sourcetype here should normally match
+# whatever literal value the add-on covering this data expects at its input
+# stage (e.g. Splunk_TA_zeek expects the literal sourcetype "zeek" so its own
+# shipped per-file autotype transform reclassifies each log by filename) —
+# it is not a free-form placeholder to be overridden downstream.
 splunk_uf_monitor_path: ""
 
 # Explicit allowlist of filenames (relative to splunk_uf_monitor_path) to

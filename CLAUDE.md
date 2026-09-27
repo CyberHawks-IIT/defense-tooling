@@ -769,6 +769,67 @@ REST API's validator, and its own frontend bundle — treat all three as
 unreliable individually and verify behavior live (job logs, actual
 `readCount`) rather than trusting any one of them.
 
+## Zeek sourcetype/field-extraction incident (2026-09-27)
+
+Found while starting real SPL implementation in `splunk-detections` (step 5):
+every Zeek log had been landing in Splunk as a single generic
+`zeek_placeholder` sourcetype with **zero field extraction** — `id.orig_h`,
+`proto`, etc. never existed as searchable fields. Three independent bugs,
+found and fixed in sequence:
+
+1. **A custom index-time sourcetype-rename transform was missing
+   `SOURCE_KEY = MetaData:Source` (and initially `WRITE_META = true`
+   too).** Without `SOURCE_KEY`, its regex ran against `_raw` (the default),
+   which never contains a file path, so the rename from `zeek_placeholder`
+   to `zeek:conn`/`zeek:dns`/etc. silently never fired. This custom
+   mechanism (`Splunk_TA_zeek/local/props.conf`+`transforms.conf`,
+   `[source::.../zeek/logs/*/*.log]` → `zeek_set_sourcetype`) turned out to
+   be unnecessary anyway — **removed entirely**, in favor of just seeding
+   the forwarder's initial sourcetype as the literal `zeek` (was
+   `zeek_placeholder`) so `Splunk_TA_zeek`'s own shipped `[zeek]` stanza
+   (`TRANSFORMS-autotype = zeek_autotype,TrashComments`) does the same
+   per-file retyping correctly, out of the box. Changed
+   `splunk_uf_sourcetype_placeholder: zeek` in `host_vars/zeek.yml` (+
+   `.example`).
+2. **Dead end, since abandoned:** assumed `Splunk_TA_zeek`'s
+   `INDEXED_EXTRACTIONS = tsv` (the mechanism its own `[zeek]` stanza uses)
+   would then extract fields once the sourcetype was correct. It didn't —
+   `splunkd.log` showed `CsvLineBreaker` logging repeated "has extra
+   incorrect columns in certain fields" warnings against this range's real
+   conn.log/dns.log data, with zero fields ever created, no error surfaced
+   anywhere else. Also confirmed (per Splunk's own docs) that
+   `INDEXED_EXTRACTIONS` must run on whichever process directly reads the
+   file — installed the TA on the Zeek forwarder itself to test this
+   (`splunk_uf_addons_dir`, briefly added to `splunk_forwarder` then
+   removed again) — same warning, same zero fields. Not worth chasing
+   further given a simpler standard alternative existed.
+3. **Real fix: plain search-time delimiter extraction**, `REPORT-<name>` in
+   `dt_detection_content/local/props.conf` pointing at `DELIMS`/`FIELDS`
+   transforms in `dt_detection_content/local/transforms.conf` (files:
+   `dt_detection_content_props.conf`, `dt_detection_content_transforms.conf`
+   in `splunk_indexer/files/`). Confirmed live end-to-end for `zeek:conn`
+   and `zeek:dns`. **Gotcha confirmed along the way:** a bare
+   `FIELD_DELIMITER`/`FIELD_NAMES` in props.conf (tried before REPORT) turned
+   out to be a companion setting for `INDEXED_EXTRACTIONS`'s own header
+   parsing, not an independent search-time mechanism — it also silently
+   extracted nothing. **Second gotcha:** Splunk silently normalizes a dotted
+   field name declared in `FIELDS` (e.g. `id.orig_h`, matching Zeek/CIM
+   convention) to underscores at search time (`id_orig_h`) — every detection
+   in `splunk-detections` must reference the underscore form, not the dotted
+   one `backlog.md`'s prose uses.
+4. `dce_rpc.log`/`kerberos.log` FIELDS lists use Zeek's standard default
+   field order (no live traffic existed yet on this range to read a real
+   header from at the time this was fixed) — reverify against a real header
+   the first time a detection using those fields doesn't behave as expected.
+   `ldap.log` deliberately has no FIELDS entry yet for the same reason, plus
+   it's a third-party Zeek package (not core Zeek) so field order isn't a
+   safe assumption at all — needs a real header read before it can be added.
+
+Both the Splunk indexer (510) and Zeek sensor (511) had all logs cleared and
+were re-snapshotted (same "power off → snapshot → power on" process,
+replacing their existing latest snapshot) after this fix, before any real
+detection testing began.
+
 ## Open items
 
 1. `dt_vss_shadow_copy_created` (see "Organizing ingested data for step 5"

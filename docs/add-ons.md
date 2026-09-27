@@ -26,6 +26,25 @@ you're starting from scratch, download these from Splunkbase and point
 `.tgz`/`.spl` files — the role extracts everything in that directory into
 `$SPLUNK_HOME/etc/apps/`.
 
+**Do not rely on `Splunk_TA_zeek`'s `INDEXED_EXTRACTIONS = tsv` for field
+extraction in this environment.** Found live 2026-09-27: against this
+range's real conn.log/dns.log data, Splunk's `CsvLineBreaker` logs repeated
+"has extra incorrect columns in certain fields" warnings and silently
+produces zero extracted fields (no `id.orig_h`, `id.resp_h`, etc. — no error
+anywhere, just absent fields). Installing the TA on the forwarder itself
+(where `INDEXED_EXTRACTIONS` is actually supposed to run, per Splunk's own
+docs — a universal forwarder does not otherwise parse) didn't change this.
+Root-caused only as far as "the TA's TSV line-breaker doesn't tolerate this
+data" — not worth chasing further given a much simpler, standard alternative
+exists: plain search-time delimited extraction (`FIELD_DELIMITER` +
+`FIELD_NAMES`), deployed indexer-side in `splunk_indexer`'s
+`dt_detection_content_zeek_fields.conf` (see CLAUDE.md's Zeek
+sourcetype/field-extraction incident writeup for the full debugging trail,
+including a separate, now-fixed bug in a custom index-time sourcetype-rename
+transform this project no longer uses — the TA's own shipped `[zeek]`
+autotype transform handles that, as long as the forwarder seeds the literal
+`zeek` sourcetype it expects).
+
 | Add-on | Splunkbase | Installed as | Why |
 |---|---|---|---|
 | Corelight Add-on for Zeek | [app/5446](https://splunkbase.splunk.com/app/5446) | `Splunk_TA_zeek` | Field extraction + CIM mapping for Zeek TSV logs (`zeek:conn`, `zeek:kerberos`, `zeek:dce_rpc`, `zeek:ntlm`, etc.) |

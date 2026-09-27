@@ -152,6 +152,13 @@
         mode: "0644"
       notify: restart splunk
 
+    - name: Deploy dt_detection_content/local/props.conf (search-time Zeek field extraction)
+      ansible.builtin.copy:
+        src: dt_detection_content_props.conf
+        dest: "{{ splunk_home }}/etc/apps/dt_detection_content/local/props.conf"
+        mode: "0644"
+      notify: restart splunk
+
     - name: Deploy dt_detection_content/lookups/dt_detection_content_known_hosts.csv
       ansible.builtin.copy:
         src: dt_detection_content_known_hosts.csv
@@ -274,25 +281,20 @@
         owner: "{{ ansible_user }}"
       notify: restart splunk
 
-- name: Deploy the Zeek dynamic-sourcetype mapping (requires Splunk_TA_zeek)
-  when: splunk_deploy_zeek_sourcetype_mapping
-  block:
-    - name: Ensure Splunk_TA_zeek/local exists
-      ansible.builtin.file:
-        path: "{{ splunk_home }}/etc/apps/Splunk_TA_zeek/local"
-        state: directory
-        mode: "0755"
-
-    - name: Deploy zeek sourcetype props.conf
-      ansible.builtin.copy:
-        src: zeek_sourcetype_props.conf
-        dest: "{{ splunk_home }}/etc/apps/Splunk_TA_zeek/local/props.conf"
-        mode: "0644"
-      notify: restart splunk
-
-    - name: Deploy zeek sourcetype transforms.conf
-      ansible.builtin.copy:
-        src: zeek_sourcetype_transforms.conf
-        dest: "{{ splunk_home }}/etc/apps/Splunk_TA_zeek/local/transforms.conf"
-        mode: "0644"
-      notify: restart splunk
+# NOTE (2026-09-27): a prior version of this role deployed a *custom*
+# Splunk_TA_zeek/local/props.conf + transforms.conf here to retype each
+# Zeek log by filename (zeek_placeholder -> zeek:conn, zeek:dns, etc.).
+# Removed — it was both redundant with and initially broken relative to
+# Splunk_TA_zeek's own shipped [zeek] stanza (TRANSFORMS-autotype =
+# zeek_autotype,TrashComments in the TA's default props.conf/transforms.conf),
+# which already does exactly this, correctly, as long as the forwarder's
+# *initial* sourcetype is the literal string "zeek" — not a custom
+# placeholder. Our custom transform also used the wrong initial sourcetype
+# for its own INDEXED_EXTRACTIONS=tsv/FIELD_HEADER_REGEX parsing rules (those
+# live on the "[zeek]" stanza, which only matches sourcetype=zeek) and was
+# separately missing SOURCE_KEY = MetaData:Source on its rename transform
+# (defaults to _raw, so the regex never matched). Fixed by setting
+# splunk_forwarder's splunk_uf_sourcetype_placeholder to "zeek" for the zeek
+# host (see host_vars/zeek.yml) and deleting this now-unnecessary block.
+# See splunk-detections CLAUDE.md / cyber-range CLAUDE.md for the incident
+# writeup.

@@ -1,8 +1,12 @@
 # Zeek's monitor config — host-specific because the demo box (also in
 # splunk_forwarders) has none of these paths and shouldn't inherit them.
 # See ansible/inventory/group_vars/all.yml.example.
+#
+# sourcetype here must be the literal "zeek" so Splunk_TA_zeek's shipped
+# [zeek] stanza (on the indexer) applies and its autotype transform
+# reclassifies each log by filename into zeek:conn/zeek:dns/etc.
 splunk_uf_monitor_path: /opt/zeek/logs/current
-splunk_uf_sourcetype_placeholder: zeek_placeholder
+splunk_uf_sourcetype_placeholder: zeek
 splunk_uf_monitor_files:
   - conn.log
   - dns.log

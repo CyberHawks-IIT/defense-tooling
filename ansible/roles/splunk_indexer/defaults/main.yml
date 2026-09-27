@@ -16,11 +16,6 @@ splunk_addons_dir: ""
 splunk_home: /opt/splunk
 splunk_receiving_port: 9997
 
-# Whether to deploy this role's dynamic Zeek sourcetype mapping
-# (props.conf/transforms.conf under Splunk_TA_zeek/local). Only makes sense
-# if Splunk_TA_zeek is among your installed add-ons.
-splunk_deploy_zeek_sourcetype_mapping: true
-
 # Whether to deploy the dt_detection_content app: the zeek/windows/linux
 # indexes, and the macros/eventtypes/lookup supporting
 # splunk-detections/detections/backlog.md (see CLAUDE.md's monitoring
