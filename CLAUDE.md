@@ -242,19 +242,39 @@ wrote. Fix: `MSYS2_ARG_CONV_EXCL="*"` on the specific command (not
 `MSYS_NO_PATHCONV=1` globally — that also breaks conversion for things you
 *do* want converted, like an `-i` key path given in POSIX form).
 
+## Monitoring rollout plan (2026-09-27)
+
+Full plan (5 steps, spans this repo + `cyber-range` + `splunk-detections`)
+is documented in `cyber-range`'s CLAUDE.md under "Monitoring rollout plan"
+— that's the hub. This repo owns steps 1, 3, and 4:
+
+- **Step 1 — install the forwarder + add-ons on every monitored host.**
+  The Linux `splunk_forwarder` role already exists and works (verified
+  against the Zeek sensor) — it just needs applying to the demo box
+  (10.1.1.1) too. **A Windows Universal Forwarder role doesn't exist yet**
+  and is the main gap — needed for all 7 AD range VMs. `Splunk_TA_windows`
+  and `Splunk_TA_microsoft_sysmon` are already on the indexer (see
+  `docs/add-ons.md`); `Splunk_TA_nix` (for the demo box's auditd data) and
+  the SQL Server add-on (for sql1/sql2's SQL Server Audit data, needed by
+  the `sql-abuse` detection) are not yet installed.
+- **Step 3 — forward a minimal, explicit set of logs.** Same principle
+  already applied to Zeek (`splunk_uf_monitor_files` — an explicit
+  allowlist, never a wildcard), extended to Windows. Open design question
+  to resolve when this starts: Windows Event Forwarder inputs work at the
+  **channel** level (`WinEventLog://Security`, `.../Directory Service`,
+  `.../System`, plus the Sysmon/WinRM/WMI-Activity operational channels) —
+  decide whether channel-level granularity is "minimal enough" or whether
+  per-event-ID whitelisting (via the input's own whitelist/blacklist
+  regexes) is worth the added complexity, especially for high-volume
+  channels like Security.
+- **Step 4 — organize ingested data in Splunk.** Decide whether Windows/
+  Sysmon/Linux data gets its own index(es) separate from the `main` index
+  Zeek already uses (open item below), confirm the installed add-ons'
+  sourcetype/field-extraction coverage actually matches what
+  `splunk-detections/detections/backlog.md` needs, and add whatever
+  macros/tags/eventtypes make step 5's detections easier to write.
+
 ## Open items
 
-1. Windows Universal Forwarder role — not started.
-2. `SQL Server Audit`/Extended Events ingestion — SQL Server Audit data
-   isn't plain text (binary `.sqlaudit`/`.xel` files); there's no
-   file-tailing option. Needs either the (Splunkbase-gated) "Splunk Add-on
-   for Microsoft SQL Server" (scripted DB-query inputs, not log monitoring)
-   or custom scripting. Not started.
-3. Linux auditd ingestion (for the range's service-abuse host) — the
-   underlying `key=value` format is plain text and mostly auto-extracts in
-   Splunk without an add-on, but timestamp parsing and multi-line event
-   correlation (SYSCALL+PATH+CWD) would benefit from `Splunk_TA_nix`. Not
-   started; not urgent since nothing forwards from that host yet.
-4. A dedicated Splunk index for Zeek/range data — everything currently
-   lands in the default `main` index. Fine for now; worth splitting out
-   if/when retention or access-control needs diverge.
+1. A dedicated Splunk index for Zeek/range data — everything currently
+   lands in the default `main` index. Revisit as part of step 4 above.
