@@ -1,13 +1,17 @@
 # Real values — see ../all.yml.example's splunk_forwarder_windows section
 # for the full explanation of this shape and the channel-vs-event-ID
 # granularity decision (also documented in CLAUDE.md, monitoring rollout
-# plan step 3).
+# plan step 3). Sysmon's renderXml/sourcetype override is step 4's fix —
+# see CLAUDE.md's monitoring rollout plan step 4 for why it's the one
+# channel here that needs it.
 splunk_uf_win_monitor_channels_common:
   - channel: Security
     whitelist: "1102,4624,4625,4656,4657,4662,4663,4697,4698,4720,4728,4732,4741,4756,4768,4769,4771,5136,5137,5145"
   - channel: System
     whitelist: "104,7040,7045"
   - channel: Microsoft-Windows-Sysmon/Operational
+    renderXml: true
+    sourcetype: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
   - channel: Microsoft-Windows-WMI-Activity/Operational
   - channel: Microsoft-Windows-WinRM/Operational
   - channel: Microsoft-Windows-Windows Defender/Operational
@@ -16,3 +20,8 @@ splunk_uf_win_monitor_channels_common:
 splunk_uf_win_monitor_channels_extra: []
 
 splunk_uf_win_monitor_channels: "{{ splunk_uf_win_monitor_channels_common + splunk_uf_win_monitor_channels_extra }}"
+
+# Step 4 (CLAUDE.md, monitoring rollout plan): a dedicated index instead of
+# the default "main", organized by data source alongside Zeek's "zeek" and
+# the demo box's "linux" — see splunk_indexer's dt_detection_content_indexes.conf.
+splunk_uf_win_index: windows

@@ -38,12 +38,20 @@ Every gotcha below was hit for real, not anticipated in the abstract.
   port, add-on placement, and the Zeek dynamic-sourcetype `props.conf`/
   `transforms.conf` override are all scripted. Still manual: actually
   *downloading* the installer and add-ons (see `docs/add-ons.md`).
+  **Monitoring rollout plan step 4 (2026-09-27): done.** Deploys a new
+  `dt_detection_content` app — the `zeek`/`windows`/`linux` indexes, macros,
+  eventtypes, and a `known_range_hosts` lookup supporting
+  `splunk-detections/detections/backlog.md` — see "Organizing ingested data
+  for step 5" below for the full design and what was confirmed vs. added.
 - **Splunk forwarder role (Linux)**: built and verified — installs the UF,
   configures `inputs.conf`/`outputs.conf`, confirmed live end-to-end
   (established TCP connection, real throughput in the indexer's
   `metrics.log`). `inputs.conf` forwards an explicit minimal allowlist of
   files (`splunk_uf_monitor_files`), not a directory wildcard — see "What
-  gets forwarded vs. how it's typed" below.
+  gets forwarded vs. how it's typed" below. **The demo box's auditd log is
+  now wired up too (2026-09-27)** — left at install+connect-only since step
+  1, per backlog.md's own "ingestion not wired up yet" note; see "Organizing
+  ingested data for step 5" below.
 - **Splunk forwarder role (Windows)**: built and verified — `splunk_forwarder_windows`
   installs the UF via `.msi` over WinRM, deploys `outputs.conf`, confirmed
   live end-to-end (real `ESTAB` connections on the indexer's `:9997` from
@@ -56,7 +64,9 @@ Every gotcha below was hit for real, not anticipated in the abstract.
   indexer's `metrics.log` shows real, ongoing throughput for the
   `forwarded_logs` sourcetype (tens of events/sec across the 7 hosts), and
   every host's `splunkd.log` is free of `WinEventLogChannel` subscribe
-  errors after the Event Log Readers fix below.
+  errors after the Event Log Readers fix below. **Step 4 fixed the
+  sourcetype itself (2026-09-27)** — `forwarded_logs` is gone; see
+  "Organizing ingested data for step 5" below for why and what replaced it.
 - **Proxmox mirror script**: built and verified — `tc` ingress mirroring
   from a router VM's interfaces to a sensor's capture NIC, persisted via
   hookscripts on **both** the router VM and the sensor CT (a sensor restart
@@ -328,6 +338,165 @@ Turning on the channels above surfaced two more things, both now fixed in
    in any of the 7 hosts' `splunkd.log`, and the indexer's `metrics.log`
    shows sustained `forwarded_logs` throughput.
 
+### Organizing ingested data for step 5 (monitoring rollout plan step 4, 2026-09-27)
+
+**Index design: separate `zeek`/`windows`/`linux` indexes, not a renamed
+`main`.** Everything from steps 1-3 was landing in Splunk's default `main`
+index. Went with three named indexes instead of one renamed index — cheap
+to do (a lab-scale deployment, no capacity/retention pressure driving the
+decision either way), and it makes per-source-type searches
+(`index=windows ...`) and any future retention/access-control split trivial
+without touching a single detection. `main` itself is untouched — still
+exists, just nothing points at it anymore. New Ansible variables:
+`splunk_uf_index` (`splunk_forwarder` role, real value set in each Linux
+host's `host_vars/` — `zeek` for the sensor, `linux` for the demo box) and
+`splunk_uf_win_index` (`splunk_forwarder_windows` role, real value `windows`
+in `group_vars/splunk_forwarders_windows/monitor.yml`). Deployed via a new
+`dt_detection_content` Splunk app (`splunk_indexer` role,
+`splunk_deploy_detection_content: true` by default) — see
+`ansible/roles/splunk_indexer/files/dt_detection_content_indexes.conf`.
+Already-indexed events sitting in `main` from before this change were left
+alone by the reindex itself — see "Clearing logs" in this project's history
+for the actual cutover (the same session that made this change also cleared
+old data as part of a broader log-clearing pass, giving all three new
+indexes a clean start rather than a mix of old-`main` and new-named-index
+data).
+
+**Splunk_TA_windows collapses `sourcetype` to a bare
+`WinEventLog`/`XmlWinEventLog` — real per-channel typing lives in `source`,
+not `sourcetype`.** This is the actual fix for the `forwarded_logs`
+placeholder sourcetype step 3 left in place (mentioned above under Status).
+Confirmed live via `splunk search ... | table sourcetype source`: every
+Windows event's `sourcetype` field is just `WinEventLog` or
+`XmlWinEventLog` (no channel suffix at all), regardless of what `inputs.conf`
+sets — the TA's own `ta-windows-fix-sourcetype` transform
+(`Splunk_TA_windows/default/transforms.conf`) truncates whatever sourcetype
+arrives at the first `:`. The *channel-specific* value (e.g.
+`WinEventLog:Security`) survives in `source` instead, rewritten there by a
+companion transform (`ta-windows-fix-classic-source` /
+`ta-windows-fix-xml-source`) that reads it back out of the raw event text
+(`LogName=` for classic, `<Channel>` for XML) — and that's what the TA's own
+per-channel `props.conf`/`eventtypes.conf` stanzas
+(`[source::WinEventLog:Security]`, `wineventlog-ds`, etc.) actually key on.
+Net effect: **every knowledge object in `dt_detection_content` that needs to
+target a specific Windows Event Log channel filters on `source=`, never
+`sourcetype=`** — a `sourcetype=`-based filter would silently match nothing,
+which is exactly what the first draft of `dt_detection_content_macros.conf`
+did before this was caught (fixed before it ever reached splunk-detections).
+The Windows Event Log input side didn't need this understanding — Splunk's
+own default channel-based sourcetype naming (`WinEventLog:<channel>`, no
+explicit override) already produces exactly the `source` value these
+add-ons expect; see the inputs.conf.j2 change below.
+
+**Sysmon needed `renderXml: true` + an explicit `sourcetype` override —
+the one exception to "let Splunk's native default typing handle it".**
+Confirmed via `Splunk_TA_microsoft_sysmon/default/props.conf`: every one of
+its field extractions (`Image`, `CommandLine`, `GrantedAccess`, `PipeName`,
+etc.) is defined against `XmlWinEventLog:Microsoft-Windows-Sysmon/Operational`
+only — there's no classic-mode stanza at all. Splunk's native default for an
+unrendered channel is classic mode, which would give an unparsed `Message`
+blob instead of real fields. `splunk_uf_win_monitor_channels` entries
+gained two new optional keys for this: `renderXml` (bool) and `sourcetype`
+(string, only meaningful paired with `renderXml: true`) — every other
+channel omits both and gets Splunk's native `WinEventLog:<channel>`
+default, which already lines up with what Splunk_TA_windows expects (see
+above). Verified live: `TargetImage`/`GrantedAccess`/`SourceImage` extract
+correctly from real Sysmon Event 10 data post-fix.
+
+**Confirmed-vs-added coverage pass against backlog.md** (the "confirm the
+installed add-ons' sourcetype/field-extraction coverage actually matches
+what backlog.md needs" half of this step) — full detail and the resulting
+knowledge objects live in `ansible/roles/splunk_indexer/files/
+dt_detection_content_eventtypes.conf`'s own comments, summarized here:
+
+- **Already covered by the installed add-ons, reused directly, nothing
+  added:** most authentication events (`windows_logon_success`,
+  `windows_logon_failure`, `windows_auth_ticket_granted`,
+  `windows_service_ticket_granted`, `windows_pre_auth_failed`), account
+  creation (`windows_account_created`), service/scheduled-task lifecycle
+  (`windows_endpoint_services` — 4697/7040/7045 together), registry SACLs
+  (`windows_security_endpoint_registry` — 4657), audit-log-cleared
+  (`windows_audit_log_cleared` — 1102), Defender tamper events
+  (`wineventlog_defender_operational_attack`/`_operations`), and WMI event
+  subscription persistence (`ms-sysmon-wmimod` — Sysmon 19/20/21).
+- **Confirmed gaps, filled with new `dt_*` eventtypes:** DCSync (4662 alone
+  is too broad — needs the DS-Replication-Get-Changes* GUID filter, which
+  no add-on provides), the full privileged-group-membership set
+  (Splunk_TA_windows' own eventtype has 4732 but not 4728/4756 — half the
+  real targets here), every directory-service-object-modified/created
+  scenario (5136/5137 — RBCD, Shadow Credentials, ACL abuse, ScriptPath
+  tampering, rogue DNS records; no add-on eventtype touches 5136/5137 at
+  all), object-access-completed (4663 — SAM/LSA hive dumping, NTDS.dit
+  extraction, DPAPI theft; the add-on only covers 4656, the *request*
+  event, not 4663, the *completion* event these detections key on),
+  detailed file share (5145), NTLMv1 logon (4624 plus the exact
+  `Package Name (NTLM only)` field/value), Sysmon LSASS access (Event 10
+  bundled with 10 unrelated codes in the add-on's own eventtype — needed
+  its own GrantedAccess-mask-and-allowlist-aware version), Sysmon named-pipe
+  coercion triggers (17/18, filtered to the five specific pipes backlog.md
+  names), scheduled task creation on its own (4698, too tightly bundled
+  with unrelated GPO/cert-services codes in the add-on's version to use
+  directly), and 1644 LDAP query content.
+- **Still not ingested at all (not a step 4 problem — a step 2 one):** IIS
+  logs (web portal, ADCS ESC8) and SQL Server Audit/Extended Events — see
+  Open items below. Also newly confirmed while doing this pass: the CA's
+  own certification-authority operational log (needed for the ADCS
+  RPC/ICPR detections) isn't being forwarded either, and `cyber-range`'s
+  `detection_logging` role doesn't appear to enable any CA-specific
+  auditing beyond what already applies to every domain member — same
+  "log source doesn't exist yet" class of gap as IIS/SQL, just not
+  previously written down anywhere.
+- **One eventtype flagged unconfirmed, matching backlog.md's own honesty
+  convention for unverified items:** `dt_vss_shadow_copy_created` (the VSS/
+  shadow-copy-creation signal for the SAM/LSA/NTDS.dit hive-dumping
+  detections) is a raw-text match against `Microsoft-Windows-WMI-Activity/
+  Operational` — no add-on defines field extraction for that channel at
+  all, and this hasn't been checked against a real triggered
+  `Win32_ShadowCopy` `Create` event yet.
+
+**`known_range_hosts` lookup** (`dt_detection_content`'s own
+`lookups/dt_detection_content_known_hosts.csv` +
+`transforms.conf`) — the `cyberhawks.lab` `ad` segment's fixed IP
+assignments (the 7 range VMs + `computer`/`computer2-5`'s static IPs + the
+demo box), for the NTLM-relay and unusual-source-IP detections that need to
+distinguish a known host from anything else (`| lookup known_range_hosts ip
+AS src_ip OUTPUT hostname`, then filter on `isnull(hostname)`).
+
+**No `tags.conf` was added.** Considered it, decided against: the generic
+event codes reused above already have extensive CIM tagging from
+Splunk_TA_windows itself, and every *new* `dt_*` eventtype this pass added
+is attack-specific (DCSync, RBCD, Shadow Credentials, ACL abuse, coercion
+pipes) — none of these map cleanly onto standard CIM tag vocabulary, so
+tagging them for tagging's sake would've been noise, not signal.
+
+**The demo box's Linux forwarder had two of its own gaps, both fixed:**
+
+1. Same unconditional-copy bug as the Windows role (see above) — the
+   `.deb` path was also an old session's now-gone scratchpad temp file.
+   Same fix: stat-check first, gate the assert/copy/install on
+   `not uf_binary.stat.exists`.
+2. **Confirmed live:** `/var/log/audit/audit.log` is `root:adm` mode `640`,
+   and the UF's own dedicated `splunkfwd` service user (created by the
+   `.deb` postinst) isn't a member of `adm` — so without a fix, the
+   forwarder simply can't read the one file it's now been told to monitor.
+   Fixed the same way as the Windows Event Log Readers issue: add
+   `splunkfwd` to the `adm` group (Debian's own convention for granting log
+   read access) rather than loosening the file's permissions. Sourcetype is
+   `linux_audit` (Splunk_TA_nix), not the add-on's more basic `auditd`
+   sourcetype — `linux_audit` is the one with the `ses AS session_id` field
+   alias backlog.md's detection needs to tie the file-watch event back to
+   the PAM `USER_LOGIN` event.
+
+**Also fixed in passing:** the zeek sensor CT's `sysadmin` account had
+`/home/sysadmin` owned by `root:root` (everything under it was correctly
+owned, just the directory itself wasn't) — a leftover from `sysadmin` being
+manually recreated on that CT after its privileged-container rebuild (see
+"Cloning a container never changes privileged/unprivileged" above). This
+silently broke every Ansible run against `zeek` (`Failed to create
+temporary directory`) despite plain `ssh sysadmin@zeek` working fine, since
+SSH itself doesn't need to write to `$HOME`. Fixed with a one-line `chown`
+via `pct exec` from the Proxmox host.
+
 ### `MSYS_NO_PATHCONV` when scripting this from Windows/Git Bash
 
 If you're driving Ansible or raw `ssh`/`scp` from Git Bash on Windows, any
@@ -412,14 +581,29 @@ is documented in `cyber-range`'s CLAUDE.md under "Monitoring rollout plan"
   for two more fixes this surfaced. All 7 hosts confirmed forwarding live
   (sustained `forwarded_logs` throughput in the indexer's `metrics.log`, no
   `WinEventLogChannel` errors in any host's `splunkd.log`).
-- **Step 4 — organize ingested data in Splunk.** Decide whether Windows/
-  Sysmon/Linux data gets its own index(es) separate from the `main` index
-  Zeek already uses (open item below), confirm the installed add-ons'
-  sourcetype/field-extraction coverage actually matches what
-  `splunk-detections/detections/backlog.md` needs, and add whatever
-  macros/tags/eventtypes make step 5's detections easier to write.
+- **Step 4 — organize ingested data in Splunk.** **Done (2026-09-27).** Three
+  named indexes (`zeek`/`windows`/`linux`) instead of the default `main`;
+  confirmed the installed add-ons' sourcetype/field-extraction coverage
+  against `splunk-detections/detections/backlog.md` (most generic event
+  codes already covered, real gaps filled with new eventtypes); a
+  `known_range_hosts` lookup; the demo box's auditd forwarding (left
+  unwired since step 1) finished. Also fixed the `forwarded_logs` placeholder
+  sourcetype step 3 left behind, and a handful of unrelated blockers this
+  surfaced (Linux UF installer-copy ordering, `splunkfwd`/`adm` group
+  membership, a broken home directory on the zeek sensor CT). Full detail in
+  "Organizing ingested data for step 5" above.
 
 ## Open items
 
-1. A dedicated Splunk index for Zeek/range data — everything currently
-   lands in the default `main` index. Revisit as part of step 4 above.
+1. IIS logs (web portal weak-password, ADCS ESC8 web enrollment) and SQL
+   Server Audit/Extended Events aren't being forwarded — neither log source
+   is actually turned on yet (`cyber-range`'s `detection_logging` role
+   doesn't cover either). Newly confirmed during step 4: the CA's own
+   certification-authority operational log (needed for the ADCS RPC/ICPR
+   detections) is in the same boat — not a `defense-tooling` problem to fix
+   alone, since the log source itself has to exist on the `cyber-range` side
+   first. Add the corresponding `dt_detection_content` macros/eventtypes
+   once any of these three actually start flowing.
+2. `dt_vss_shadow_copy_created` (see "Organizing ingested data for step 5"
+   above) is unconfirmed — built from the documented WMI-Activity/Operational
+   message format, not verified against a real triggered event.

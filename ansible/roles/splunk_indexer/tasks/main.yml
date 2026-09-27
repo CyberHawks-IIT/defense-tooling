@@ -97,6 +97,68 @@
         label: "{{ item.path | basename }}"
       notify: restart splunk
 
+- name: Deploy detection-content knowledge objects (indexes/macros/eventtypes/lookup for splunk-detections)
+  when: splunk_deploy_detection_content
+  block:
+    - name: Ensure dt_detection_content app directories exist
+      ansible.builtin.file:
+        path: "{{ splunk_home }}/etc/apps/dt_detection_content/{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - default
+        - local
+        - lookups
+        - metadata
+
+    - name: Deploy dt_detection_content/default/app.conf
+      ansible.builtin.copy:
+        src: dt_detection_content_app.conf
+        dest: "{{ splunk_home }}/etc/apps/dt_detection_content/default/app.conf"
+        mode: "0644"
+
+    - name: Deploy dt_detection_content/metadata/default.meta (share knowledge objects globally)
+      ansible.builtin.copy:
+        src: dt_detection_content_default.meta
+        dest: "{{ splunk_home }}/etc/apps/dt_detection_content/metadata/default.meta"
+        mode: "0644"
+      notify: restart splunk
+
+    - name: Deploy dt_detection_content/local/indexes.conf (zeek/windows/linux indexes)
+      ansible.builtin.copy:
+        src: dt_detection_content_indexes.conf
+        dest: "{{ splunk_home }}/etc/apps/dt_detection_content/local/indexes.conf"
+        mode: "0644"
+      notify: restart splunk
+
+    - name: Deploy dt_detection_content/local/macros.conf
+      ansible.builtin.copy:
+        src: dt_detection_content_macros.conf
+        dest: "{{ splunk_home }}/etc/apps/dt_detection_content/local/macros.conf"
+        mode: "0644"
+      notify: restart splunk
+
+    - name: Deploy dt_detection_content/local/eventtypes.conf
+      ansible.builtin.copy:
+        src: dt_detection_content_eventtypes.conf
+        dest: "{{ splunk_home }}/etc/apps/dt_detection_content/local/eventtypes.conf"
+        mode: "0644"
+      notify: restart splunk
+
+    - name: Deploy dt_detection_content/local/transforms.conf (known_range_hosts lookup definition)
+      ansible.builtin.copy:
+        src: dt_detection_content_transforms.conf
+        dest: "{{ splunk_home }}/etc/apps/dt_detection_content/local/transforms.conf"
+        mode: "0644"
+      notify: restart splunk
+
+    - name: Deploy dt_detection_content/lookups/dt_detection_content_known_hosts.csv
+      ansible.builtin.copy:
+        src: dt_detection_content_known_hosts.csv
+        dest: "{{ splunk_home }}/etc/apps/dt_detection_content/lookups/dt_detection_content_known_hosts.csv"
+        mode: "0644"
+      notify: restart splunk
+
 - name: Deploy the Zeek dynamic-sourcetype mapping (requires Splunk_TA_zeek)
   when: splunk_deploy_zeek_sourcetype_mapping
   block:

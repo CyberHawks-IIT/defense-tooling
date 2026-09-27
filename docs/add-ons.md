@@ -37,6 +37,13 @@ you're starting from scratch, download these from Splunkbase and point
 | Splunk DB Connect | [app/2686](https://splunkbase.splunk.com/app/2686) | `splunk_app_db_connect` | The SQL Server add-on's scripted DB-query inputs actually run through this — installed alongside it, not optional for that data path |
 | Splunk Add-on for Unix and Linux | [app/833](https://splunkbase.splunk.com/app/833) | `Splunk_TA_nix` | Cleaner timestamp parsing + multi-line correlation for the demo box's auditd data (works without it too, just rougher) |
 
+Alongside these, the `splunk_indexer` role also deploys its own
+`dt_detection_content` app (not from Splunkbase — it's this project's own
+indexes/macros/eventtypes/lookup supporting
+`splunk-detections/detections/backlog.md`; see CLAUDE.md's monitoring
+rollout plan step 4 for the full design, including which of the above
+add-ons' own coverage it reuses vs. fills gaps in).
+
 ## A note on `Splunk_TA_zeek` and JSON vs. TSV
 
 This add-on's comprehensive field mappings are built for Zeek's **TSV**

@@ -1,12 +1,8 @@
 ---
-- name: Assert required variables are set
+- name: Assert splunk_uf_indexer_host is set
   ansible.builtin.assert:
-    that:
-      - splunk_uf_deb_path | length > 0
-      - splunk_uf_indexer_host | length > 0
-    fail_msg: >-
-      splunk_uf_deb_path and splunk_uf_indexer_host must both be set. See
-      docs/add-ons.md for the forwarder download.
+    that: splunk_uf_indexer_host | length > 0
+    fail_msg: "splunk_uf_indexer_host must be set. See docs/add-ons.md for the forwarder download."
 
 - name: Assert splunk_uf_monitor_path is set if any files are listed
   ansible.builtin.assert:
@@ -14,16 +10,28 @@
     fail_msg: "splunk_uf_monitor_path must be set when splunk_uf_monitor_files is non-empty."
   when: splunk_uf_monitor_files | length > 0
 
+- name: Check whether the forwarder is already installed
+  ansible.builtin.stat:
+    path: "{{ splunk_uf_home }}/bin/splunk"
+  register: uf_binary
+
+# splunk_uf_deb_path is only needed for a first-time install -- once the UF
+# is present, re-runs (e.g. to update inputs.conf) shouldn't require
+# re-pointing at an installer that may no longer even exist on disk (it's
+# typically a one-off download/temp path, not something kept around). See
+# the equivalent fix in splunk_forwarder_windows for why this bit us live.
+- name: Assert splunk_uf_deb_path is set for first-time install
+  ansible.builtin.assert:
+    that: splunk_uf_deb_path | length > 0
+    fail_msg: "splunk_uf_deb_path must be set for the forwarder's first install."
+  when: not uf_binary.stat.exists
+
 - name: Copy the Universal Forwarder package to this host
   ansible.builtin.copy:
     src: "{{ splunk_uf_deb_path }}"
     dest: /tmp/splunkforwarder-linux.deb
     mode: "0644"
-
-- name: Check whether the forwarder is already installed
-  ansible.builtin.stat:
-    path: "{{ splunk_uf_home }}/bin/splunk"
-  register: uf_binary
+  when: not uf_binary.stat.exists
 
 - name: Install the Universal Forwarder package
   ansible.builtin.apt:
@@ -54,6 +62,22 @@
                  # dedicated splunkfwd user for ongoing boot-start (verified
                  # live: it survives a reboot with no extra config needed),
                  # so this only matters for this first manual start.
+
+# The UF's .deb postinst runs splunkd as a dedicated splunkfwd user (see
+# the restart handler's comment), which by default can't read root-owned
+# system logs -- confirmed live on the demo box: /var/log/audit/audit.log
+# is root:adm mode 640, and splunkfwd isn't a member of adm. Debian's own
+# convention for granting read access to logs like this (rather than
+# widening the file's own permissions) is membership in the adm group, so
+# that's what this adds -- harmless for hosts like Zeek, whose own log
+# files aren't group-adm and don't need it.
+- name: Ensure the forwarder's service user can read root-owned system logs (e.g. auditd's group-adm files)
+  ansible.builtin.user:
+    name: splunkfwd
+    groups: adm
+    append: true
+  when: splunk_uf_monitor_files | length > 0
+  notify: restart forwarder
 
 - name: Ensure a local app directory exists for our inputs.conf
   ansible.builtin.file:

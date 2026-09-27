@@ -18,24 +18,25 @@ splunk_addons_dir: /path/to/downloaded/addons   # directory of .tgz/.spl files
 splunk_receiving_port: 9997
 
 # --- splunk_forwarder role ---
+# Only what's genuinely shared across every Linux forwarder (Zeek, the demo
+# box, and anything else in the splunk_forwarders group) belongs here.
 splunk_uf_deb_path: /path/to/splunkforwarder-linux.deb
 splunk_uf_admin_password: "changeme"       # vault this in a real deployment
 splunk_uf_indexer_host: "{{ hostvars['splunk'].ansible_host }}"
 splunk_uf_indexer_port: "{{ splunk_receiving_port }}"
-splunk_uf_monitor_path: /opt/zeek/logs/current
-splunk_uf_index: main
-splunk_uf_sourcetype_placeholder: zeek_placeholder
 
-# Deliberately minimal — only the Zeek logs something in
-# splunk-detections/detections/backlog.md actually depends on. Keep this in
-# sync with that repo's "Zeek logs actually needed" table; forwarding more
-# than this spends license/storage on data nobody's detecting on.
-splunk_uf_monitor_files:
-  - conn.log
-  - dns.log
-  - dce_rpc.log
-  - kerberos.log
-  - ldap.log
+# splunk_uf_monitor_path/monitor_files/sourcetype_placeholder/index are all
+# deliberately NOT set here — every one of them differs per host (Zeek's
+# log dir + 5-file allowlist + "zeek_placeholder" sourcetype + "zeek" index
+# vs. the demo box's auditd log + "linux_audit" sourcetype + "linux" index),
+# so they live in host_vars/zeek.yml.example and host_vars/demo.yml.example
+# instead — see CLAUDE.md's "Per-host monitor config must not live in
+# group_vars/all.yml" gotcha for why this one bit us before, and monitoring
+# rollout plan step 4 for the "zeek"/"windows"/"linux" index split (each
+# has its own indexes.conf stanza in splunk_indexer's dt_detection_content
+# app — a forwarder pointed at an index that doesn't exist there will still
+# accept the data, just via Splunk auto-creating it with default settings,
+# which usually isn't what you want).
 
 # --- splunk_forwarder_windows role ---
 splunk_uf_win_msi_path: /path/to/splunkforwarder-windows.msi
@@ -66,11 +67,21 @@ splunk_uf_win_indexer_port: "{{ splunk_receiving_port }}"
 #     - channel: System
 #       whitelist: "104,7040,7045"
 #     - channel: Microsoft-Windows-Sysmon/Operational
+#       renderXml: true
+#       sourcetype: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
 #     - channel: Microsoft-Windows-WMI-Activity/Operational
 #     - channel: Microsoft-Windows-WinRM/Operational
 #     - channel: Microsoft-Windows-Windows Defender/Operational
 #       whitelist: "5001-5013"
 #   splunk_uf_win_monitor_channels_extra: []
+#   splunk_uf_win_index: windows
+#
+# The Sysmon renderXml/sourcetype pair is monitoring rollout plan step 4
+# (CLAUDE.md): Splunk_TA_microsoft_sysmon's field extractions (Image,
+# CommandLine, GrantedAccess, PipeName, etc.) are only defined for the
+# XML-rendered sourcetype — every other channel above uses Splunk's native
+# "WinEventLog:<channel>" default (no override needed) since that already
+# matches what Splunk_TA_windows expects.
 #
 # host_vars/dc1.yml.example and host_vars/dc2.yml.example show the DC-only
 # addition (Directory Service, whitelist "1644").

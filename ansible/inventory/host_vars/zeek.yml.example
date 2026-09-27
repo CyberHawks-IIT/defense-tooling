@@ -1,0 +1,15 @@
+# Zeek's monitor config — host-specific because the demo box (also in
+# splunk_forwarders) has none of these paths and shouldn't inherit them.
+# See ansible/inventory/group_vars/all.yml.example.
+splunk_uf_monitor_path: /opt/zeek/logs/current
+splunk_uf_sourcetype_placeholder: zeek_placeholder
+splunk_uf_monitor_files:
+  - conn.log
+  - dns.log
+  - dce_rpc.log
+  - kerberos.log
+  - ldap.log
+
+# Step 4 (CLAUDE.md, monitoring rollout plan): a dedicated index instead of
+# the default "main" — see splunk_indexer's dt_detection_content_indexes.conf.
+splunk_uf_index: zeek

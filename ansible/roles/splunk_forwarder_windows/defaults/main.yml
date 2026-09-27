@@ -24,22 +24,40 @@ splunk_uf_win_indexer_port: 9997
 # granularity decision behind this shape).
 #
 # Each entry is a dict:
-#   channel:   the WinEventLog channel name, e.g. Security,
-#              Microsoft-Windows-Sysmon/Operational
-#   whitelist: optional. A comma-separated list of Event IDs (or ID ranges,
-#              e.g. "5001-5013") to forward from that channel. Omit it to
-#              forward the whole channel unfiltered — only appropriate for
-#              channels that are already low-volume or already scoped at the
-#              source (e.g. Sysmon, whose own config only emits the event
-#              types we asked for). High-volume channels like Security
-#              always need this set — see CLAUDE.md.
+#   channel:    the WinEventLog channel name, e.g. Security,
+#               Microsoft-Windows-Sysmon/Operational
+#   whitelist:  optional. A comma-separated list of Event IDs (or ID ranges,
+#               e.g. "5001-5013") to forward from that channel. Omit it to
+#               forward the whole channel unfiltered — only appropriate for
+#               channels that are already low-volume or already scoped at
+#               the source (e.g. Sysmon, whose own config only emits the
+#               event types we asked for). High-volume channels like
+#               Security always need this set — see CLAUDE.md.
+#   sourcetype: optional. Omit it for classic (non-XML) channels — Splunk's
+#               own WinEventLog input already assigns "WinEventLog:<channel>"
+#               automatically, which is exactly what Splunk_TA_windows'
+#               field extractions/CIM mappings expect, so there's nothing to
+#               override. Set it explicitly only alongside renderXml: true
+#               (see below) — Splunk's XML-mode default sourcetype naming
+#               doesn't line up with what add-ons expect the same way.
+#   renderXml:  optional, boolean. Splunk_TA_microsoft_sysmon's field
+#               extractions (Image, CommandLine, GrantedAccess, PipeName,
+#               etc.) are only defined for the XML-rendered sourcetype
+#               (XmlWinEventLog:Microsoft-Windows-Sysmon/Operational) — the
+#               classic-mode default gives you an unparsed Message blob
+#               instead. Confirmed live: this is the one channel among
+#               everything this role forwards that actually needs it — see
+#               CLAUDE.md's monitoring rollout plan step 4.
 #
 # Example:
 #   splunk_uf_win_monitor_channels:
 #     - channel: Security
 #       whitelist: "1102,4624,4625,4656,4657,4662,4663,4697,4698,4720,4728,4732,4741,4756,4768,4769,4771,5136,5137,5145"
 #     - channel: Microsoft-Windows-Sysmon/Operational
+#       renderXml: true
+#       sourcetype: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
 splunk_uf_win_monitor_channels: []
 
-splunk_uf_win_sourcetype_placeholder: forwarded_logs
+# See CLAUDE.md's monitoring rollout plan step 4 for why this isn't "main" —
+# real deployments set this to "windows" (group_vars/splunk_forwarders_windows/).
 splunk_uf_win_index: main

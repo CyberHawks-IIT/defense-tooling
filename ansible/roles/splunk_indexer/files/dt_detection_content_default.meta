@@ -1,0 +1,11 @@
+# Deployed by the splunk_indexer role to dt_detection_content/metadata/default.meta.
+#
+# Without this, every macro/eventtype/lookup in this app defaults to
+# app-private sharing -- confirmed live: `eventtype=win_security_base`
+# matched 0 events from the CLI search context (which isn't this app),
+# even though the exact same criteria as a raw search matched hundreds.
+# `export = system` makes them usable from any app/context, same as how
+# Splunk_TA_windows and Splunk_TA_zeek's own knowledge objects are shared.
+[]
+access = read : [ * ], write : [ admin ]
+export = system

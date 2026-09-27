@@ -1,0 +1,17 @@
+# See host_vars/zeek.yml.example — same per-host-config principle, applied
+# to the demo box's auditd log instead of Zeek's. cyber-range's demo_auditd
+# role must have already applied the actual auditd rule
+# (-w /etc/shadow -p r -k shadow_read) for this to forward anything real.
+splunk_uf_monitor_path: /var/log/audit
+splunk_uf_monitor_files:
+  - audit.log
+
+# linux_audit (Splunk_TA_nix), not the TA's more basic "auditd" sourcetype —
+# linux_audit has the field aliasing (ses AS session_id, etc.) backlog.md's
+# "/etc/shadow read" detection needs to tie the file-watch event to the PAM
+# USER_LOGIN event by auid/ses.
+splunk_uf_sourcetype_placeholder: linux_audit
+
+# Step 4 (CLAUDE.md, monitoring rollout plan): a dedicated index instead of
+# the default "main" — see splunk_indexer's dt_detection_content_indexes.conf.
+splunk_uf_index: linux

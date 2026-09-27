@@ -20,3 +20,12 @@ splunk_receiving_port: 9997
 # (props.conf/transforms.conf under Splunk_TA_zeek/local). Only makes sense
 # if Splunk_TA_zeek is among your installed add-ons.
 splunk_deploy_zeek_sourcetype_mapping: true
+
+# Whether to deploy the dt_detection_content app: the zeek/windows/linux
+# indexes, and the macros/eventtypes/lookup supporting
+# splunk-detections/detections/backlog.md (see CLAUDE.md's monitoring
+# rollout plan step 4). Forwarders must point at the zeek/windows/linux
+# index names for this to actually receive their data -- see
+# splunk_uf_index (splunk_forwarder role) and splunk_uf_win_index
+# (splunk_forwarder_windows role).
+splunk_deploy_detection_content: true

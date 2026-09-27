@@ -1,0 +1,14 @@
+ip,hostname
+10.0.2.2,dc1
+10.0.2.3,dc2
+10.0.2.4,ca
+10.0.2.5,web
+10.0.2.6,sql1
+10.0.2.7,sql2
+10.0.2.8,workstation
+10.0.2.51,computer
+10.0.2.52,computer2
+10.0.2.53,computer3
+10.0.2.54,computer4
+10.0.2.55,computer5
+10.1.1.1,demo
