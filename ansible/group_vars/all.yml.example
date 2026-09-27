@@ -1,0 +1,28 @@
+# Copy to all.yml and fill in your own values. all.yml is gitignored.
+# See ../../docs/add-ons.md for where the downloaded files referenced below
+# come from.
+
+# --- zeek_sensor role ---
+# The capture interface must already exist as a second NIC on the sensor
+# (firewall=0, no IP) before running this role — see
+# ../../docs/manual-prerequisites.md. This role does not create the NIC
+# itself (that's a Proxmox host-level `pct set`, out of Ansible's reach from
+# inside the guest).
+zeek_capture_interface: eth1
+zeek_management_interface: eth0
+
+# --- splunk_indexer role ---
+splunk_deb_path: /path/to/splunk-enterprise.deb
+splunk_admin_password: "changeme"          # vault this in a real deployment
+splunk_addons_dir: /path/to/downloaded/addons   # directory of .tgz/.spl files
+splunk_receiving_port: 9997
+
+# --- splunk_forwarder role ---
+splunk_uf_deb_path: /path/to/splunkforwarder-linux.deb
+splunk_uf_admin_password: "changeme"       # vault this in a real deployment
+splunk_uf_indexer_host: "{{ hostvars['splunk'].ansible_host }}"
+splunk_uf_indexer_port: "{{ splunk_receiving_port }}"
+splunk_uf_monitor_path: /opt/zeek/logs/current
+splunk_uf_index: main
+splunk_uf_sourcetype_placeholder: zeek_placeholder
+splunk_uf_exclude_files: '(loaded_scripts|packet_filter|stdout|stderr)\.log$'

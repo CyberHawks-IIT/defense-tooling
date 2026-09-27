@@ -1,0 +1,4 @@
+---
+- name: restart forwarder
+  ansible.builtin.command: "{{ splunk_uf_home }}/bin/splunk restart"
+  changed_when: true

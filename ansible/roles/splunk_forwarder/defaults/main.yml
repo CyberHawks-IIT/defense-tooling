@@ -1,0 +1,22 @@
+---
+# Local path to a manually downloaded Universal Forwarder .deb — see
+# ../../../docs/add-ons.md. Required; this role does not download it.
+splunk_uf_deb_path: ""
+
+# Seeded on first start only, same rules as splunk_indexer's admin password.
+splunk_uf_admin_password: ""
+
+splunk_uf_home: /opt/splunkforwarder
+
+# Where the indexer is, and what port it's receiving on.
+splunk_uf_indexer_host: ""
+splunk_uf_indexer_port: 9997
+
+# What to monitor and how to type it. sourcetype here is deliberately a
+# placeholder — pair this with the splunk_indexer role's dynamic sourcetype
+# mapping (or write your own index-time transform) if you need real
+# per-file typing instead of one blanket sourcetype.
+splunk_uf_monitor_path: ""
+splunk_uf_sourcetype_placeholder: forwarded_logs
+splunk_uf_index: main
+splunk_uf_exclude_files: ""

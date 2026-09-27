@@ -1,0 +1,6 @@
+---
+- name: Configure Splunk Universal Forwarder(s)
+  hosts: splunk_forwarders
+  become: true
+  roles:
+    - splunk_forwarder

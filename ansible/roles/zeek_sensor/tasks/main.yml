@@ -1,0 +1,56 @@
+---
+- name: Install prerequisites for adding the Zeek apt repo
+  ansible.builtin.apt:
+    name: [curl, gnupg, ca-certificates]
+    state: present
+    update_cache: true
+
+- name: Add the Zeek apt repo
+  ansible.builtin.apt_repository:
+    repo: "deb {{ zeek_repo_url }} /"
+    filename: security-zeek
+    state: present
+
+- name: Fetch and install the Zeek repo's signing key
+  ansible.builtin.shell: |
+    set -euo pipefail
+    curl -fsSL "{{ zeek_repo_key_url }}" | gpg --dearmor -o /etc/apt/trusted.gpg.d/security_zeek.gpg
+  args:
+    creates: /etc/apt/trusted.gpg.d/security_zeek.gpg
+  changed_when: true
+
+- name: Install Zeek
+  ansible.builtin.apt:
+    name: zeek
+    state: latest
+    update_cache: true
+
+- name: Point Zeek's standalone node at the dedicated capture interface
+  ansible.builtin.lineinfile:
+    path: /opt/zeek/etc/node.cfg
+    regexp: '^interface='
+    line: "interface={{ zeek_capture_interface }}"
+  notify: deploy zeek
+
+- name: Ensure the capture interface is defined, up, and promiscuous (persists across reboots)
+  ansible.builtin.blockinfile:
+    path: /etc/network/interfaces
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - zeek capture interface"
+    block: |
+      auto {{ zeek_capture_interface }}
+      iface {{ zeek_capture_interface }} inet manual
+      	up ip link set $IFACE up
+      	up ip link set $IFACE promisc on
+  register: capture_iface_config
+
+- name: Bring the capture interface up now (so this run doesn't need a reboot to take effect)
+  ansible.builtin.command: "ifup {{ zeek_capture_interface }}"
+  when: capture_iface_config is changed
+  changed_when: true
+  failed_when: false  # ifup returns nonzero if it's already up; that's fine here
+
+- name: Confirm the capture interface is actually promiscuous
+  ansible.builtin.command: "ip link show {{ zeek_capture_interface }}"
+  register: capture_iface_state
+  changed_when: false
+  failed_when: "'PROMISC' not in capture_iface_state.stdout"

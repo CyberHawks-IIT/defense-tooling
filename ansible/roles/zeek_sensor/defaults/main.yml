@@ -1,0 +1,10 @@
+---
+# The interface Zeek actually sniffs on. Must be a dedicated capture NIC —
+# see docs/manual-prerequisites.md and CLAUDE.md's firewall=0 gotcha for why
+# this shouldn't be the same NIC as the sensor's management IP.
+zeek_capture_interface: eth1
+
+# Zeek repo (official OBS "latest stable" track). Override if you need a
+# pinned version instead of always-latest.
+zeek_repo_url: "http://download.opensuse.org/repositories/security:/zeek/Debian_12/"
+zeek_repo_key_url: "https://download.opensuse.org/repositories/security:zeek/Debian_12/Release.key"

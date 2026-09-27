@@ -1,0 +1,106 @@
+---
+- name: Assert splunk_deb_path is set
+  ansible.builtin.assert:
+    that: splunk_deb_path | length > 0
+    fail_msg: >-
+      splunk_deb_path is not set. Download Splunk Enterprise yourself
+      (see docs/add-ons.md — it requires a splunk.com login) and set
+      splunk_deb_path to the local .deb file's path.
+
+- name: Copy the Splunk Enterprise package to the indexer
+  ansible.builtin.copy:
+    src: "{{ splunk_deb_path }}"
+    dest: /tmp/splunk-enterprise.deb
+    mode: "0644"
+
+- name: Check whether Splunk is already installed
+  ansible.builtin.stat:
+    path: "{{ splunk_home }}/bin/splunk"
+  register: splunk_binary
+
+- name: Install the Splunk Enterprise package
+  ansible.builtin.apt:
+    deb: /tmp/splunk-enterprise.deb
+  when: not splunk_binary.stat.exists
+
+- name: Check whether Splunk has already been initialized (first-start already run)
+  ansible.builtin.stat:
+    path: "{{ splunk_home }}/etc/passwd"
+  register: splunk_initialized
+
+- name: Assert splunk_admin_password is set for first-time initialization
+  ansible.builtin.assert:
+    that: splunk_admin_password | length > 0
+    fail_msg: "splunk_admin_password must be set for Splunk's first start (seeds the admin account)."
+  when: not splunk_initialized.stat.exists
+
+- name: First-time start — accept license and seed the admin password
+  ansible.builtin.command: >
+    {{ splunk_home }}/bin/splunk start
+    --accept-license --answer-yes --no-prompt
+    --seed-passwd {{ splunk_admin_password | quote }}
+  when: not splunk_initialized.stat.exists
+  changed_when: true
+
+- name: Enable boot-start
+  ansible.builtin.command: "{{ splunk_home }}/bin/splunk enable boot-start --accept-license"
+  register: boot_start_result
+  changed_when: "'is already configured to start' not in boot_start_result.stdout"
+
+- name: Ensure etc/system/local exists
+  ansible.builtin.file:
+    path: "{{ splunk_home }}/etc/system/local"
+    state: directory
+    mode: "0755"
+
+- name: Configure the receiving port for forwarders
+  ansible.builtin.copy:
+    dest: "{{ splunk_home }}/etc/system/local/inputs.conf"
+    content: |
+      [splunktcp://{{ splunk_receiving_port }}]
+      disabled = 0
+    mode: "0644"
+  notify: restart splunk
+
+- name: Deploy add-ons from the local add-ons directory
+  when: splunk_addons_dir | length > 0
+  block:
+    - name: Find add-on packages on the control node
+      ansible.builtin.find:
+        paths: "{{ splunk_addons_dir }}"
+        patterns: ["*.tgz", "*.spl"]
+      delegate_to: localhost
+      register: addon_files
+
+    - name: Extract each add-on into $SPLUNK_HOME/etc/apps
+      ansible.builtin.unarchive:
+        src: "{{ item.path }}"
+        dest: "{{ splunk_home }}/etc/apps/"
+        remote_src: false
+      loop: "{{ addon_files.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      notify: restart splunk
+
+- name: Deploy the Zeek dynamic-sourcetype mapping (requires Splunk_TA_zeek)
+  when: splunk_deploy_zeek_sourcetype_mapping
+  block:
+    - name: Ensure Splunk_TA_zeek/local exists
+      ansible.builtin.file:
+        path: "{{ splunk_home }}/etc/apps/Splunk_TA_zeek/local"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy zeek sourcetype props.conf
+      ansible.builtin.copy:
+        src: zeek_sourcetype_props.conf
+        dest: "{{ splunk_home }}/etc/apps/Splunk_TA_zeek/local/props.conf"
+        mode: "0644"
+      notify: restart splunk
+
+    - name: Deploy zeek sourcetype transforms.conf
+      ansible.builtin.copy:
+        src: zeek_sourcetype_transforms.conf
+        dest: "{{ splunk_home }}/etc/apps/Splunk_TA_zeek/local/transforms.conf"
+        mode: "0644"
+      notify: restart splunk

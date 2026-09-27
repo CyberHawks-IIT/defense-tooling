@@ -1,0 +1,6 @@
+---
+- name: Configure Zeek sensor(s)
+  hosts: zeek_sensors
+  become: true
+  roles:
+    - zeek_sensor

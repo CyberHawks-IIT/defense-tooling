@@ -1,0 +1,22 @@
+---
+# Local path to a manually downloaded Splunk Enterprise .deb — see
+# ../../../docs/add-ons.md. Required; this role does not download it.
+splunk_deb_path: ""
+
+# Seeded on first start only. Ignored on subsequent runs (Splunk refuses to
+# re-seed an already-initialized instance) — change it afterward through
+# Splunk itself if needed.
+splunk_admin_password: ""
+
+# Directory of pre-downloaded add-on .tgz/.spl files (see ../../../docs/add-ons.md).
+# Every file in this directory is extracted into $SPLUNK_HOME/etc/apps/.
+# Leave unset/empty to skip add-on installation.
+splunk_addons_dir: ""
+
+splunk_home: /opt/splunk
+splunk_receiving_port: 9997
+
+# Whether to deploy this role's dynamic Zeek sourcetype mapping
+# (props.conf/transforms.conf under Splunk_TA_zeek/local). Only makes sense
+# if Splunk_TA_zeek is among your installed add-ons.
+splunk_deploy_zeek_sourcetype_mapping: true

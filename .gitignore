@@ -1,0 +1,12 @@
+# Real inventory/vars — contain hostnames, IPs, and (unless vaulted) passwords.
+ansible/inventory/hosts.yml
+ansible/group_vars/all.yml
+ansible/group_vars/*.yml
+!ansible/group_vars/*.yml.example
+
+# Downloaded Splunk packages / add-ons — never commit these (large, and
+# redistributing Splunk binaries isn't ours to do).
+*.deb
+*.msi
+*.tgz
+*.spl

@@ -1,0 +1,7 @@
+---
+# Runs everything, in the order that makes a clean first-time deploy work:
+# the indexer first (so it's ready to receive), then Zeek (so its log
+# directory exists), then forwarders (so there's something to forward).
+- ansible.builtin.import_playbook: splunk-indexer.yml
+- ansible.builtin.import_playbook: zeek-sensor.yml
+- ansible.builtin.import_playbook: splunk-forwarder.yml

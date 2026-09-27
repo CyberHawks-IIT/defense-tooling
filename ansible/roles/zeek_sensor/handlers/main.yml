@@ -1,0 +1,6 @@
+---
+- name: deploy zeek
+  ansible.builtin.shell: |
+    export PATH=/opt/zeek/bin:$PATH
+    zeekctl deploy
+  changed_when: true

@@ -1,0 +1,71 @@
+---
+- name: Assert required variables are set
+  ansible.builtin.assert:
+    that:
+      - splunk_uf_deb_path | length > 0
+      - splunk_uf_monitor_path | length > 0
+      - splunk_uf_indexer_host | length > 0
+    fail_msg: >-
+      splunk_uf_deb_path, splunk_uf_monitor_path, and splunk_uf_indexer_host
+      must all be set. See docs/add-ons.md for the forwarder download.
+
+- name: Copy the Universal Forwarder package to this host
+  ansible.builtin.copy:
+    src: "{{ splunk_uf_deb_path }}"
+    dest: /tmp/splunkforwarder-linux.deb
+    mode: "0644"
+
+- name: Check whether the forwarder is already installed
+  ansible.builtin.stat:
+    path: "{{ splunk_uf_home }}/bin/splunk"
+  register: uf_binary
+
+- name: Install the Universal Forwarder package
+  ansible.builtin.apt:
+    deb: /tmp/splunkforwarder-linux.deb
+  when: not uf_binary.stat.exists
+
+- name: Check whether the forwarder has already been initialized
+  ansible.builtin.stat:
+    path: "{{ splunk_uf_home }}/etc/passwd"
+  register: uf_initialized
+
+- name: Assert splunk_uf_admin_password is set for first-time initialization
+  ansible.builtin.assert:
+    that: splunk_uf_admin_password | length > 0
+    fail_msg: "splunk_uf_admin_password must be set for the forwarder's first start."
+  when: not uf_initialized.stat.exists
+
+- name: First-time start — accept license and seed the admin password
+  ansible.builtin.command: >
+    {{ splunk_uf_home }}/bin/splunk start
+    --accept-license --answer-yes --no-prompt
+    --seed-passwd {{ splunk_uf_admin_password | quote }}
+  when: not uf_initialized.stat.exists
+  changed_when: true
+
+- name: Ensure a local app directory exists for our inputs.conf
+  ansible.builtin.file:
+    path: "{{ splunk_uf_home }}/etc/apps/forwarder_inputs/local"
+    state: directory
+    mode: "0755"
+
+- name: Deploy inputs.conf (what to monitor)
+  ansible.builtin.template:
+    src: inputs.conf.j2
+    dest: "{{ splunk_uf_home }}/etc/apps/forwarder_inputs/local/inputs.conf"
+    mode: "0644"
+  notify: restart forwarder
+
+- name: Ensure etc/system/local exists
+  ansible.builtin.file:
+    path: "{{ splunk_uf_home }}/etc/system/local"
+    state: directory
+    mode: "0755"
+
+- name: Deploy outputs.conf (where to send it)
+  ansible.builtin.template:
+    src: outputs.conf.j2
+    dest: "{{ splunk_uf_home }}/etc/system/local/outputs.conf"
+    mode: "0644"
+  notify: restart forwarder

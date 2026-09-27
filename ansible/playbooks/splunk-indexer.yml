@@ -1,0 +1,6 @@
+---
+- name: Configure the Splunk indexer
+  hosts: splunk_indexers
+  become: true
+  roles:
+    - splunk_indexer
