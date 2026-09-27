@@ -1,0 +1,7 @@
+{% for channel in splunk_uf_win_monitor_channels %}
+[WinEventLog://{{ channel }}]
+disabled = 0
+sourcetype = {{ splunk_uf_win_sourcetype_placeholder }}
+index = {{ splunk_uf_win_index }}
+
+{% endfor %}

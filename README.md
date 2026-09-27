@@ -17,7 +17,7 @@ for the concrete addresses these examples are based on.
 | `zeek_sensor` role | Installs latest Zeek, configures a dedicated capture NIC | Built + verified |
 | `splunk_indexer` role | Installs Splunk Enterprise, add-ons, receiving port, Zeek sourcetype mapping | Built + verified |
 | `splunk_forwarder` role (Linux) | Installs the Universal Forwarder, forwards an explicit minimal allowlist of files (not a directory wildcard) | Built + verified |
-| `splunk_forwarder` role (Windows) | Same, for DCs | Not built yet |
+| `splunk_forwarder_windows` role | Same, for Windows hosts (WinRM, `.msi`) — monitor channels deliberately left empty until step 3 decides what's forwarded | Built + verified |
 | `scripts/proxmox/setup-mirror.sh` | Mirrors a router's interfaces to a sensor via `tc` | Built + verified |
 | `scripts/proxmox/create-privileged-lxc.sh` | Builds a privileged LXC without the linked-clone trap | Built + verified |
 
@@ -36,8 +36,8 @@ This repo only gets data *in*.
 
 1. Read [docs/add-ons.md](docs/add-ons.md) and download what you need.
 2. Read [docs/manual-prerequisites.md](docs/manual-prerequisites.md) — one-time Proxmox host settings this repo assumes are done.
-3. Copy `ansible/inventory/hosts.yml.example` → `hosts.yml` and `ansible/group_vars/all.yml.example` → `all.yml`, fill in your values.
-4. `ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/site.yml` (or run the three playbooks individually).
+3. Copy `ansible/inventory/hosts.yml.example` → `hosts.yml` and `ansible/inventory/group_vars/all.yml.example` → `all.yml`, fill in your values. Windows hosts also need `ansible-galaxy collection install -r ansible/requirements.yml` on the control node.
+4. `ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/site.yml` (or run the playbooks individually).
 5. On the Proxmox host itself: `scripts/proxmox/setup-mirror.sh --help` to wire up traffic mirroring into your sensor.
 
 ## Known gotchas
@@ -52,6 +52,7 @@ Full detail in [CLAUDE.md](CLAUDE.md) — summary:
 | Zeek TSV vs. JSON | The installed add-on's full field coverage only exists for TSV | Roles leave Zeek on its TSV default — don't switch to JSON |
 | Sensor restart breaks the mirror too (not just a router restart) | Mirror looks configured (`tc filter show`), but shows `Egress Mirror to device *` — a dead interface reference | `setup-mirror.sh` hookscripts both the router *and* the sensor now, and always rebuilds rather than checking first |
 | Zeek has no systemd unit of its own | After a reboot, `zeekctl status` reports `crashed` — nothing restarts it | `zeek_sensor` role deploys `zeek.service` and enables it |
+| `group_vars` under `ansible/` never actually loads | Vars silently fall back to role defaults — no error, just wrong values (e.g. add-ons "installed" against an empty `splunk_addons_dir`) | Ansible only auto-discovers `group_vars`/`host_vars` next to the inventory file (or the playbook), not the repo root — it now lives at `ansible/inventory/group_vars/` |
 
 ## Repository layout
 
@@ -60,10 +61,14 @@ defense-tooling/
   README.md
   CLAUDE.md
   ansible/
-    inventory/hosts.yml.example
-    group_vars/all.yml.example
-    roles/{zeek_sensor, splunk_indexer, splunk_forwarder}/
-    playbooks/{zeek-sensor, splunk-indexer, splunk-forwarder, site}.yml
+    requirements.yml               # ansible.windows collection
+    inventory/
+      hosts.yml.example
+      group_vars/all.yml.example   # lives here, not ansible/group_vars —
+                                    # Ansible only auto-discovers group_vars
+                                    # relative to the inventory file itself
+    roles/{zeek_sensor, splunk_indexer, splunk_forwarder, splunk_forwarder_windows}/
+    playbooks/{zeek-sensor, splunk-indexer, splunk-forwarder, splunk-forwarder-windows, site}.yml
   scripts/proxmox/
     setup-mirror.sh
     create-privileged-lxc.sh

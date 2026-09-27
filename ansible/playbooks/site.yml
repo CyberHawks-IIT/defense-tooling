@@ -5,3 +5,4 @@
 - ansible.builtin.import_playbook: splunk-indexer.yml
 - ansible.builtin.import_playbook: zeek-sensor.yml
 - ansible.builtin.import_playbook: splunk-forwarder.yml
+- ansible.builtin.import_playbook: splunk-forwarder-windows.yml

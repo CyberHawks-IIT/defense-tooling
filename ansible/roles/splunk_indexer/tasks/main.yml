@@ -1,22 +1,24 @@
 ---
-- name: Assert splunk_deb_path is set
+- name: Check whether Splunk is already installed
+  ansible.builtin.stat:
+    path: "{{ splunk_home }}/bin/splunk"
+  register: splunk_binary
+
+- name: Assert splunk_deb_path is set for first-time install
   ansible.builtin.assert:
     that: splunk_deb_path | length > 0
     fail_msg: >-
       splunk_deb_path is not set. Download Splunk Enterprise yourself
       (see docs/add-ons.md — it requires a splunk.com login) and set
       splunk_deb_path to the local .deb file's path.
+  when: not splunk_binary.stat.exists
 
 - name: Copy the Splunk Enterprise package to the indexer
   ansible.builtin.copy:
     src: "{{ splunk_deb_path }}"
     dest: /tmp/splunk-enterprise.deb
     mode: "0644"
-
-- name: Check whether Splunk is already installed
-  ansible.builtin.stat:
-    path: "{{ splunk_home }}/bin/splunk"
-  register: splunk_binary
+  when: not splunk_binary.stat.exists
 
 - name: Install the Splunk Enterprise package
   ansible.builtin.apt:

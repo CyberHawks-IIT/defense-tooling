@@ -17,6 +17,21 @@ all:
       hosts:
         zeek:
           ansible_host: 10.0.10.3
+    splunk_forwarders_windows:
+      # Any Windows host you want shipping logs to the indexer, e.g. AD
+      # domain controllers. Needs WinRM reachability, not SSH — see the
+      # group_vars below.
+      hosts:
+        dc1:
+          ansible_host: 10.0.2.2
+      vars:
+        ansible_connection: winrm
+        ansible_winrm_transport: ntlm
+        ansible_port: 5985
+        ansible_user: Administrator
+        ansible_password: "{{ vault_windows_admin_password }}"
+        ansible_winrm_server_cert_validation: ignore
+        ansible_become: false  # already connecting as Administrator over WinRM
   vars:
     ansible_user: sysadmin
     ansible_ssh_private_key_file: ~/.ssh/id_ed25519_defense_tooling

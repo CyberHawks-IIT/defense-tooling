@@ -24,7 +24,10 @@ splunk_uf_monitor_path: ""
 # license, and storage spent on data nobody's looking at. For the Zeek
 # sensor specifically, this list should match splunk-detections'
 # detections/backlog.md "Zeek logs actually needed" table exactly — update
-# both together.
+# both together. Left empty, the role still installs the forwarder and
+# connects it to the indexer, just forwards nothing yet — useful for
+# standing up a host ahead of deciding what it should ship (see CLAUDE.md's
+# monitoring rollout plan, step 1 vs. step 3).
 splunk_uf_monitor_files: []
 
 splunk_uf_sourcetype_placeholder: forwarded_logs

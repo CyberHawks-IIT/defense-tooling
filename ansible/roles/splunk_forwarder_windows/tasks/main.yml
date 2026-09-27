@@ -1,0 +1,73 @@
+---
+- name: Assert required variables are set
+  ansible.builtin.assert:
+    that:
+      - splunk_uf_win_msi_path | length > 0
+      - splunk_uf_win_indexer_host | length > 0
+    fail_msg: >-
+      splunk_uf_win_msi_path and splunk_uf_win_indexer_host must both be
+      set. splunk_uf_win_monitor_channels is deliberately left unset for
+      now — see docs/add-ons.md for the forwarder download and CLAUDE.md's
+      monitoring rollout plan step 3 for why channels aren't configured yet.
+
+- name: Copy the Universal Forwarder package to this host
+  ansible.windows.win_copy:
+    src: "{{ splunk_uf_win_msi_path }}"
+    dest: 'C:\Windows\Temp\splunkforwarder-windows.msi'
+
+- name: Check whether the forwarder is already installed
+  ansible.windows.win_stat:
+    path: "{{ splunk_uf_win_home }}\\bin\\splunk.exe"
+  register: uf_win_binary
+
+- name: Assert splunk_uf_win_admin_password is set for first-time install
+  ansible.builtin.assert:
+    that: splunk_uf_win_admin_password | length > 0
+    fail_msg: "splunk_uf_win_admin_password must be set for the forwarder's first install."
+  when: not uf_win_binary.stat.exists
+
+# Unlike the Linux .deb (installed, then separately started with
+# --seed-passwd), the Windows UF's .msi takes license acceptance, the admin
+# password, and boot-start registration all as install-time MSI properties
+# -- msiexec itself performs the equivalent of that first start, so there's
+# no separate step here.
+- name: Install the Universal Forwarder package (accepts license, seeds admin password, registers the service)
+  ansible.windows.win_package:
+    path: 'C:\Windows\Temp\splunkforwarder-windows.msi'
+    state: present
+    arguments: >-
+      AGREETOLICENSE=Yes
+      SPLUNKPASSWORD="{{ splunk_uf_win_admin_password }}"
+      LAUNCHSPLUNK=1
+  when: not uf_win_binary.stat.exists
+
+- name: Ensure a local app directory exists for our inputs.conf
+  ansible.windows.win_file:
+    path: "{{ splunk_uf_win_home }}\\etc\\apps\\forwarder_inputs\\local"
+    state: directory
+  when: splunk_uf_win_monitor_channels | length > 0
+
+- name: Deploy inputs.conf (what to monitor)
+  ansible.windows.win_template:
+    src: inputs.conf.j2
+    dest: "{{ splunk_uf_win_home }}\\etc\\apps\\forwarder_inputs\\local\\inputs.conf"
+  notify: restart forwarder
+  when: splunk_uf_win_monitor_channels | length > 0
+
+- name: Remove any stale inputs.conf if the monitor list is now empty
+  ansible.windows.win_file:
+    path: "{{ splunk_uf_win_home }}\\etc\\apps\\forwarder_inputs"
+    state: absent
+  notify: restart forwarder
+  when: splunk_uf_win_monitor_channels | length == 0
+
+- name: Ensure etc/system/local exists
+  ansible.windows.win_file:
+    path: "{{ splunk_uf_win_home }}\\etc\\system\\local"
+    state: directory
+
+- name: Deploy outputs.conf (where to send it)
+  ansible.windows.win_template:
+    src: outputs.conf.j2
+    dest: "{{ splunk_uf_win_home }}\\etc\\system\\local\\outputs.conf"
+  notify: restart forwarder

@@ -44,10 +44,14 @@ Every gotcha below was hit for real, not anticipated in the abstract.
   `metrics.log`). `inputs.conf` forwards an explicit minimal allowlist of
   files (`splunk_uf_monitor_files`), not a directory wildcard — see "What
   gets forwarded vs. how it's typed" below.
-- **Splunk forwarder role (Windows)**: not built yet. Needed for forwarding
-  `WinEventLog`/Sysmon off the range's domain controllers once that's ready
-  to wire up. `Splunk_TA_windows` and `Splunk_TA_microsoft_sysmon` are
-  already expected on the indexer for when this lands.
+- **Splunk forwarder role (Windows)**: built and verified — `splunk_forwarder_windows`
+  installs the UF via `.msi` over WinRM, deploys `outputs.conf`, confirmed
+  live end-to-end (real `ESTAB` connections on the indexer's `:9997` from
+  all 7 `cyberhawks.lab` AD range VMs). Like the Linux role,
+  `splunk_uf_win_monitor_channels` is deliberately left empty for now —
+  install + connect only, per monitoring rollout plan step 1 vs. step 3
+  below. `Splunk_TA_windows` and `Splunk_TA_microsoft_sysmon` confirmed
+  already present on the indexer.
 - **Proxmox mirror script**: built and verified — `tc` ingress mirroring
   from a router VM's interfaces to a sensor's capture NIC, persisted via
   hookscripts on **both** the router VM and the sensor CT (a sensor restart
@@ -242,6 +246,51 @@ wrote. Fix: `MSYS2_ARG_CONV_EXCL="*"` on the specific command (not
 `MSYS_NO_PATHCONV=1` globally — that also breaks conversion for things you
 *do* want converted, like an `-i` key path given in POSIX form).
 
+### `ansible/group_vars/` at the repo layout level never actually loads
+
+Hit this rolling out the Windows forwarder role: `splunk_addons_dir` and
+every other `group_vars/all.yml` value silently fell back to role defaults
+(empty string / `[]`) when run via `ansible-playbook`, even though the exact
+same variable resolved correctly through a plain `ansible ... -m debug`
+ad-hoc command against the same inventory. No error either way — the
+add-ons "install" task just quietly skipped its whole block.
+
+Cause: Ansible only auto-discovers `group_vars`/`host_vars` directories
+relative to (a) the inventory file's own directory and (b) the playbook
+file's own directory — never the repo root, and never the current working
+directory for `ansible-playbook` specifically (the ad-hoc `ansible` CLI's
+discovery is more permissive about cwd, which is why it looked like it
+"worked" there and masked the bug). This repo's layout had `group_vars/`
+living directly under `ansible/`, a sibling of both `inventory/` and
+`playbooks/` — neither search path ever pointed at it.
+
+Fix: moved `group_vars/` (and added `host_vars/`) to live under
+`ansible/inventory/`, i.e. `ansible/inventory/group_vars/`, so it's always
+found via the inventory file regardless of which playbook runs or from
+where. `ansible/inventory/group_vars/all.yml.example` is the tracked
+template now; `.gitignore` was updated to match the new path. Also relevant
+to `ansible.cfg` being silently ignored entirely under WSL2's DrvFs
+mount (`Ansible is being run in a world writable directory... ignoring it`
+— see `cyber-range`'s CLAUDE.md) and to role resolution: roles live at
+`ansible/roles/`, not `ansible/playbooks/roles/`, so `ansible-playbook`
+invocations from this project need `ANSIBLE_ROLES_PATH` set (or `-e`/an
+explicit `ansible.cfg` load) pointing at `ansible/roles` — same root cause,
+config discovery not landing where the repo's directories actually are.
+
+### Per-host monitor config must not live in `group_vars/all.yml`
+
+Related mistake made while fixing the above: `splunk_uf_monitor_files`
+(Zeek's real allowlist) was set in `group_vars/all.yml`, which applies to
+every host in the `splunk_forwarders` group — including the demo box, which
+has no Zeek logs at all. First run against `demo` deployed an `inputs.conf`
+pointing at nonexistent `/opt/zeek/logs/current/*.log` paths. Fix: moved
+Zeek's monitor vars to `host_vars/zeek.yml` (host-specific), leaving
+`group_vars/all.yml` to only set what's genuinely shared (indexer host/port,
+package paths). Also added a "remove stale `inputs.conf` if the monitor
+list is now empty" cleanup task to both forwarder roles, so shrinking a
+host's list back to `[]` (or fixing a mistake like this one) is a clean
+`ansible-playbook` re-run instead of a manual file removal on the target.
+
 ## Monitoring rollout plan (2026-09-27)
 
 Full plan (5 steps, spans this repo + `cyber-range` + `splunk-detections`)
@@ -249,14 +298,19 @@ is documented in `cyber-range`'s CLAUDE.md under "Monitoring rollout plan"
 — that's the hub. This repo owns steps 1, 3, and 4:
 
 - **Step 1 — install the forwarder + add-ons on every monitored host.**
-  The Linux `splunk_forwarder` role already exists and works (verified
-  against the Zeek sensor) — it just needs applying to the demo box
-  (10.1.1.1) too. **A Windows Universal Forwarder role doesn't exist yet**
-  and is the main gap — needed for all 7 AD range VMs. `Splunk_TA_windows`
-  and `Splunk_TA_microsoft_sysmon` are already on the indexer (see
-  `docs/add-ons.md`); `Splunk_TA_nix` (for the demo box's auditd data) and
-  the SQL Server add-on (for sql1/sql2's SQL Server Audit data, needed by
-  the `sql-abuse` detection) are not yet installed.
+  **Done (2026-09-27).** The Linux `splunk_forwarder` role applied to the
+  demo box (10.1.1.1); the new `splunk_forwarder_windows` role applied to
+  all 7 `cyberhawks.lab` AD range VMs (dc1, dc2, ca, web, sql1, sql2,
+  workstation). All 9 forwarders (7 Windows + demo + the pre-existing Zeek
+  sensor) confirmed with live `ESTAB` connections to the indexer's `:9997`.
+  `Splunk_TA_windows` and `Splunk_TA_microsoft_sysmon` confirmed already on
+  the indexer; `Splunk_TA_nix`, the Splunk Add-on for Microsoft SQL Server,
+  and Splunk DB Connect (the SQL Server add-on's actual dependency for
+  DB-query inputs — not listed as a prerequisite in the original plan, added
+  once installing the SQL Server add-on surfaced it) are now installed too
+  (see `docs/add-ons.md` for exact installed folder names). Every forwarder
+  is install + connect only — no monitor files/channels configured
+  anywhere yet, that's still step 3.
 - **Step 3 — forward a minimal, explicit set of logs.** Same principle
   already applied to Zeek (`splunk_uf_monitor_files` — an explicit
   allowlist, never a wildcard), extended to Windows. Open design question

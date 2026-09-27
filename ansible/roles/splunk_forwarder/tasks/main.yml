@@ -3,15 +3,16 @@
   ansible.builtin.assert:
     that:
       - splunk_uf_deb_path | length > 0
-      - splunk_uf_monitor_path | length > 0
       - splunk_uf_indexer_host | length > 0
-      - splunk_uf_monitor_files | length > 0
     fail_msg: >-
-      splunk_uf_deb_path, splunk_uf_monitor_path, splunk_uf_indexer_host,
-      and splunk_uf_monitor_files must all be set. splunk_uf_monitor_files
-      is deliberately not defaulted to a wildcard — list only the files you
-      actually have a detection for. See docs/add-ons.md for the forwarder
-      download.
+      splunk_uf_deb_path and splunk_uf_indexer_host must both be set. See
+      docs/add-ons.md for the forwarder download.
+
+- name: Assert splunk_uf_monitor_path is set if any files are listed
+  ansible.builtin.assert:
+    that: splunk_uf_monitor_path | length > 0
+    fail_msg: "splunk_uf_monitor_path must be set when splunk_uf_monitor_files is non-empty."
+  when: splunk_uf_monitor_files | length > 0
 
 - name: Copy the Universal Forwarder package to this host
   ansible.builtin.copy:
@@ -59,6 +60,7 @@
     path: "{{ splunk_uf_home }}/etc/apps/forwarder_inputs/local"
     state: directory
     mode: "0755"
+  when: splunk_uf_monitor_files | length > 0
 
 - name: Deploy inputs.conf (what to monitor)
   ansible.builtin.template:
@@ -66,6 +68,14 @@
     dest: "{{ splunk_uf_home }}/etc/apps/forwarder_inputs/local/inputs.conf"
     mode: "0644"
   notify: restart forwarder
+  when: splunk_uf_monitor_files | length > 0
+
+- name: Remove any stale inputs.conf if the monitor list is now empty
+  ansible.builtin.file:
+    path: "{{ splunk_uf_home }}/etc/apps/forwarder_inputs"
+    state: absent
+  notify: restart forwarder
+  when: splunk_uf_monitor_files | length == 0
 
 - name: Ensure etc/system/local exists
   ansible.builtin.file:

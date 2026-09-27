@@ -1,0 +1,5 @@
+---
+- name: Configure Splunk Universal Forwarder(s) on Windows hosts
+  hosts: splunk_forwarders_windows
+  roles:
+    - splunk_forwarder_windows

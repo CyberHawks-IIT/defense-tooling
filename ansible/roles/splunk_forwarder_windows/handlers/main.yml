@@ -1,0 +1,8 @@
+---
+- name: restart forwarder
+  # The Windows UF's .msi installer registers a real Windows service
+  # (SplunkForwarder) out of the box -- no boot-start trap to work around
+  # here, unlike the Linux indexer's LSB boot-start issue.
+  ansible.windows.win_service:
+    name: SplunkForwarder
+    state: restarted

@@ -36,3 +36,15 @@ splunk_uf_monitor_files:
   - dce_rpc.log
   - kerberos.log
   - ldap.log
+
+# --- splunk_forwarder_windows role ---
+splunk_uf_win_msi_path: /path/to/splunkforwarder-windows.msi
+splunk_uf_win_admin_password: "{{ vault_windows_admin_password }}"
+splunk_uf_win_indexer_host: "{{ hostvars['splunk'].ansible_host }}"
+splunk_uf_win_indexer_port: "{{ splunk_receiving_port }}"
+
+# Left empty on purpose — step 3 of the monitoring rollout plan (CLAUDE.md)
+# hasn't yet decided channel-level vs. per-event-ID granularity for Windows
+# Event Forwarder inputs. This role only installs the forwarder and connects
+# it to the indexer until that's settled.
+splunk_uf_win_monitor_channels: []
