@@ -1,0 +1,14 @@
+[Unit]
+Description=Zeek Network Security Monitor (zeekctl)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=PATH=/opt/zeek/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/zeek/bin/zeekctl start
+ExecStop=/opt/zeek/bin/zeekctl stop
+
+[Install]
+WantedBy=multi-user.target

@@ -54,3 +54,26 @@
   register: capture_iface_state
   changed_when: false
   failed_when: "'PROMISC' not in capture_iface_state.stdout"
+
+# Zeek/zeekctl ships no systemd unit of its own -- without this, Zeek does
+# NOT come back up on its own after a reboot (confirmed the hard way: it
+# reported "crashed" after a container restart until this was added). The
+# Universal Forwarder auto-starts fine (its .deb installs its own unit);
+# Zeek needs this deployed explicitly.
+- name: Install the Zeek systemd unit
+  ansible.builtin.copy:
+    src: zeek.service
+    dest: /etc/systemd/system/zeek.service
+    mode: "0644"
+  register: zeek_unit
+
+- name: Reload systemd if the unit changed
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: zeek_unit is changed
+
+- name: Enable and start Zeek via systemd
+  ansible.builtin.systemd:
+    name: zeek.service
+    enabled: true
+    state: started

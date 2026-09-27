@@ -50,6 +50,8 @@ Full detail in [CLAUDE.md](CLAUDE.md) — summary:
 | Cloning never changes privileged/unprivileged | Can't flip an existing container to privileged | Build fresh from the base template (`create-privileged-lxc.sh`), don't clone |
 | Splunk downloads require a splunk.com login | No scriptable download path | Download by hand — [docs/add-ons.md](docs/add-ons.md) |
 | Zeek TSV vs. JSON | The installed add-on's full field coverage only exists for TSV | Roles leave Zeek on its TSV default — don't switch to JSON |
+| Sensor restart breaks the mirror too (not just a router restart) | Mirror looks configured (`tc filter show`), but shows `Egress Mirror to device *` — a dead interface reference | `setup-mirror.sh` hookscripts both the router *and* the sensor now, and always rebuilds rather than checking first |
+| Zeek has no systemd unit of its own | After a reboot, `zeekctl status` reports `crashed` — nothing restarts it | `zeek_sensor` role deploys `zeek.service` and enables it |
 
 ## Repository layout
 

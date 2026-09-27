@@ -30,7 +30,10 @@ Every gotcha below was hit for real, not anticipated in the abstract.
 
 - **Zeek sensor role**: built and verified — Zeek 9.0.0 installed via the
   official OBS repo, TSV logging (not JSON — see "Add-on JSON vs TSV" below),
-  dedicated capture interface, promiscuous mode persisted across reboots.
+  dedicated capture interface, promiscuous mode persisted across reboots,
+  and (as of the reboot-testing pass) a systemd unit so Zeek itself comes
+  back up after a reboot too — see "Zeek doesn't come back up on its own"
+  below.
 - **Splunk indexer role**: built and verified — Enterprise install, receiving
   port, add-on placement, and the Zeek dynamic-sourcetype `props.conf`/
   `transforms.conf` override are all scripted. Still manual: actually
@@ -46,10 +49,12 @@ Every gotcha below was hit for real, not anticipated in the abstract.
   to wire up. `Splunk_TA_windows` and `Splunk_TA_microsoft_sysmon` are
   already expected on the indexer for when this lands.
 - **Proxmox mirror script**: built and verified — `tc` ingress mirroring
-  from a router VM's interfaces to a sensor's capture NIC, persisted via a
-  Proxmox hookscript on the router VM (`post-start` phase, since the tap
-  devices — and any `tc` config on them — are recreated fresh every time the
-  VM (re)starts).
+  from a router VM's interfaces to a sensor's capture NIC, persisted via
+  hookscripts on **both** the router VM and the sensor CT (a sensor restart
+  breaks the mirror just as thoroughly as a router restart — see "A sensor
+  restart silently breaks the mirror too" below). Verified by actually
+  rebooting the sensor twice and confirming self-healing both times, not
+  just by reading the script.
 - **Privileged-LXC script**: built and verified — see the gotcha below for
   why this needs its own script rather than just `pct clone`.
 
@@ -72,6 +77,42 @@ The fix: the sensor's capture NIC must have `firewall=0` and should be a
 IP, since that NIC likely has `firewall=1` for good reason (you probably
 want the sensor's management traffic filtered normally). The `zeek_sensor`
 role and `setup-mirror.sh` both assume this two-NIC layout.
+
+### A sensor restart silently breaks the mirror too, not just a router restart
+
+Found this the hard way running a real clear-logs/shutdown/snapshot/restart
+cycle: restarting the *sensor* container breaks the mirror just as thoroughly
+as restarting the router, and the original version of `setup-mirror.sh`
+didn't handle it. When a container restarts, its veth is destroyed and
+recreated with the same **name** but a new kernel **ifindex**. The `tc
+mirred` action on the router's tap is bound to the old ifindex — the
+qdisc/filter still exist (so a naive "does it already exist" idempotency
+check says yes, nothing to do) but now point at a dead interface. `tc
+filter show` reveals it: `Egress Mirror to device *` instead of the real
+interface name. The sensor sees nothing, with no error anywhere, same as
+the firewall gotcha above but from the opposite direction.
+
+Fixed two ways, both now in `setup-mirror.sh`:
+1. It always deletes and recreates the tc rule rather than checking first —
+   there's no real cost to "over-applying" a rule that was already correct.
+2. It installs a hookscript on **both** the router and the sensor, so
+   either one restarting independently triggers a rebind. The original
+   version only hooked the router.
+
+Verified by actually rebooting the sensor (`pct reboot 511`) twice in a row
+and confirming `tc filter show` came back correctly bound with zero manual
+intervention both times.
+
+### Zeek doesn't come back up on its own after a reboot
+
+Unlike the Universal Forwarder (its `.deb` installs its own systemd unit),
+`zeekctl` ships no systemd integration at all. After a container reboot,
+`zeekctl status` reports the node as `crashed` — Zeek was running before,
+isn't now, and nothing restarts it. The `zeek_sensor` role now deploys a
+small systemd unit (`files/zeek.service`, `Type=oneshot`,
+`RemainAfterExit=yes`, `ExecStart=zeekctl start`) and enables it. Verified
+by rebooting the sensor and confirming Zeek came back to `running` with no
+manual `zeekctl deploy`.
 
 ### Cloning a container never changes privileged/unprivileged
 
