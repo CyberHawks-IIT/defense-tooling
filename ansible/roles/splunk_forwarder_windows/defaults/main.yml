@@ -63,8 +63,15 @@ splunk_uf_win_monitor_channels: []
 # explicit-allowlist spirit as splunk_uf_win_monitor_channels and the Linux
 # role's splunk_uf_monitor_files. Each entry is a dict:
 #   path:       a monitor:// path/glob, e.g. 'C:\inetpub\logs\LogFiles\W3SVC1\*.log'
-#   sourcetype: required.
+#   sourcetype: required. An ms:iis:* sourcetype additionally gets a
+#               forwarder-side props.conf stanza (INDEXED_EXTRACTIONS=w3c) laid
+#               down automatically -- required for header-driven IIS parsing on
+#               a UF; see templates/props.conf.j2.
 #   index:      optional, defaults to splunk_uf_win_index.
+#   crc_salt:   optional. Emitted as the stanza's crcSalt. Use '<SOURCE>' for
+#               rotating logs whose files share a near-identical header (IIS
+#               daily logs), so Splunk's CRC dedup keys on the full path and
+#               doesn't skip a new day's file as "already seen".
 splunk_uf_win_monitor_files: []
 
 # See CLAUDE.md's monitoring rollout plan step 4 for why this isn't "main" —

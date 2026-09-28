@@ -616,19 +616,36 @@ detections need) — this was always a `defense-tooling`-side forwarding gap,
 not a missing log source. Added plain file monitoring
 (`splunk_uf_win_monitor_files`, new in `splunk_forwarder_windows` —
 `monitor://` stanzas alongside the existing `WinEventLog://` ones) for
-`C:\inetpub\logs\LogFiles\W3SVC1\*.log` on both hosts, sourcetype
-`ms:iis:default` (Splunk_TA_microsoft-iis's own stanza for this exact log
-format), landing in a new dedicated `iis` index. Verified live: real events
-indexed, correct sourcetype. **Known field-extraction gap:** this box's IIS
-sites use a customized, non-default W3C field order/set (confirmed via
-`Get-WebConfigurationProperty`), and the TA's `ms:iis:default` field
-extraction assumes the standard field layout — the `host` field specifically
-comes back wrong (`EVAL-host = coalesce(s_computername, host)` picks up a
-mis-aligned column). The real host is still in `_raw` and correctly tagged
-in Splunk's actual metadata; only the TA's own computed display field is
-affected. Leave this for step 5 to work around (a custom field-extraction
-override, or normalizing the site's log field order to match what the TA
-expects) rather than fixing blind now.
+`C:\inetpub\logs\LogFiles\W3SVC1\*.log` on both hosts, landing in a new
+dedicated `iis` index.
+
+**Field-extraction gap found and fixed (2026-09-28) — use `ms:iis:auto`, not
+`ms:iis:default`.** The original `ms:iis:default` sourcetype does *fixed-column*
+extraction assuming the standard W3C field layout. This range's sites log a
+*customized* field set — and the two hosts don't even match each other (web
+adds `sc-bytes cs-bytes`; ca doesn't), so no single fixed column map can work.
+The result was every field mis-mapped: `host` came back as the s-port value
+(`80`), `cs_uri_stem` as the s-ip, `s_port` as sc-bytes, etc. — the data was
+present but useless for any detection. Fix: switch to **`ms:iis:auto`**, which
+reads each log's own `#Fields:` header via the built-in `w3c` extractor and so
+parses correctly regardless of column order. Because that's an
+`INDEXED_EXTRACTIONS` (structured-data) parse, it has to run **on the
+forwarder** for a UF, so `splunk_forwarder_windows` now also lays down a
+forwarder-side `props.conf` (`[ms:iis:auto] INDEXED_EXTRACTIONS = w3c ...`) for
+any `ms:iis:*` file source — see that role's `templates/props.conf.j2`. Also
+added `crcSalt = <SOURCE>` to the monitor stanza (per-entry `crc_salt` in
+host_vars) so daily-rotated IIS files with near-identical headers aren't skipped
+by Splunk's CRC dedup, and switched the role's restart handler from an SCM
+`win_service` restart to a `splunk.exe restart` (an SCM restart does not
+reliably re-register `monitor://` watches, and a props/INDEXED_EXTRACTIONS
+change needs a real restart). Verified live 2026-09-28: after a remove +
+`ansible-playbook` reinstall on web and ca, real requests land in `iis` with
+correct `host` (WEB/ca), `cs_uri_stem` (`/Default.aspx`, `/certsrv/`,
+`/Web.config.bak`), `c_ip`, `s_port`, and `sc_status` — unblocking both the
+web-portal (`Web.config.bak`) and ESC8 (`/certsrv` HTTP web-enrollment)
+detections. On ca, IIS logging exists specifically for ESC8: the cert request
+itself is in the Security log (4886-4889), but only the IIS log records that it
+arrived over HTTP to `/certsrv` with which client IP/user.
 
 **Certificate Services auditing (ca): done.** Confirmed live: `AuditFilter`
 registry value present (`7f`/127) and `Certification Services` audit
@@ -835,7 +852,7 @@ detection testing began.
 1. `dt_vss_shadow_copy_created` (see "Organizing ingested data for step 5"
    above) is unconfirmed — built from the documented WMI-Activity/Operational
    message format, not verified against a real triggered event.
-2. IIS's `host` field comes back wrong in Splunk (see "IIS, SQL Server, and
-   CA ingestion" above) — a field-extraction mismatch between this box's
-   customized W3C log format and what `Splunk_TA_microsoft-iis` assumes,
-   not a data-loss issue (the real host is still in `_raw`).
+2. ~~IIS's `host` field comes back wrong in Splunk~~ — RESOLVED 2026-09-28 by
+   switching the IIS sourcetype from `ms:iis:default` to `ms:iis:auto` and
+   deploying forwarder-side `INDEXED_EXTRACTIONS = w3c` props. See the
+   "IIS, SQL Server, and CA ingestion" section above for the full write-up.

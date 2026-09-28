@@ -1,8 +1,12 @@
 ---
 - name: restart forwarder
-  # The Windows UF's .msi installer registers a real Windows service
-  # (SplunkForwarder) out of the box -- no boot-start trap to work around
-  # here, unlike the Linux indexer's LSB boot-start issue.
-  ansible.windows.win_service:
-    name: SplunkForwarder
-    state: restarted
+  # Restart via the Splunk CLI (`splunk.exe restart`), not the Windows SCM
+  # (`win_service ... state=restarted`). Confirmed live: an SCM restart does
+  # not reliably re-evaluate monitor:// file inputs -- the forwarder can come
+  # back up without ever registering a watch on a monitored path (this bit the
+  # IIS log inputs specifically). A CLI restart re-reads inputs.conf/props.conf
+  # cleanly and reliably registers the watches, and it's also required for an
+  # INDEXED_EXTRACTIONS/props change to take effect. Slower, but correct.
+  ansible.windows.win_shell: '& "{{ splunk_uf_win_home }}\bin\splunk.exe" restart'
+  register: uf_win_restart
+  changed_when: true

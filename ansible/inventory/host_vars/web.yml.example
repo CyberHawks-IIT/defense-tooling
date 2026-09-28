@@ -3,7 +3,12 @@
 # needs) — nothing needed on cyber-range's side for this one, unlike SQL
 # Server/CA auditing. See CLAUDE.md's monitoring rollout plan step 4
 # follow-up.
+# ms:iis:auto (header-driven) rather than ms:iis:default (fixed column order):
+# this range's IIS sites log a customized W3C field set, which the fixed-column
+# sourcetype mis-maps. crc_salt <SOURCE> avoids CRC collisions across daily
+# log files. See the splunk_forwarder_windows role's props.conf.j2.
 splunk_uf_win_monitor_files:
   - path: 'C:\inetpub\logs\LogFiles\W3SVC1\*.log'
-    sourcetype: "ms:iis:default"
+    sourcetype: "ms:iis:auto"
     index: iis
+    crc_salt: "<SOURCE>"

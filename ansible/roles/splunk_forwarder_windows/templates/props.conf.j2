@@ -1,0 +1,28 @@
+{#
+  Parse-time settings for file-monitored sources that need structured-data
+  (INDEXED_EXTRACTIONS) parsing. For a Universal Forwarder this MUST live on
+  the forwarder itself -- INDEXED_EXTRACTIONS is performed at the point of
+  first structured-data parsing, which for a UF is the UF, not the indexer
+  (Splunk docs: "Configure INDEXED_EXTRACTIONS ... on the forwarder").
+
+  IIS on this range uses a CUSTOM W3C field order (extra sc-bytes/cs-bytes
+  columns), so the TA's fixed-column ms:iis:default sourcetype mis-maps every
+  field. ms:iis:auto reads each log's own "#Fields:" header via the built-in
+  w3c extractor, so it parses correctly regardless of field order -- but only
+  if the forwarder itself has this stanza. The rest of ms:iis:auto's CIM
+  aliases/evals stay on the indexer/search-head where Splunk_TA_microsoft-iis
+  is installed; only the index-time parse settings belong here.
+#}
+{% set _iis_sourcetypes = splunk_uf_win_monitor_files
+     | selectattr('sourcetype', 'defined')
+     | map(attribute='sourcetype')
+     | select('match', '^ms:iis:')
+     | unique | list %}
+{% for st in _iis_sourcetypes %}
+[{{ st }}]
+INDEXED_EXTRACTIONS = w3c
+TIMESTAMP_FIELDS = date, time
+CHARSET = UTF-8
+SHOULD_LINEMERGE = false
+
+{% endfor %}

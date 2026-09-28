@@ -98,6 +98,34 @@
   notify: restart forwarder
   when: (splunk_uf_win_monitor_channels | length > 0) or (splunk_uf_win_monitor_files | length > 0)
 
+# INDEXED_EXTRACTIONS (structured-data parsing) has to run on the forwarder
+# for a UF, so any ms:iis:* file source needs its parse-time props here, not
+# just on the indexer -- see templates/props.conf.j2 for the full reasoning.
+- name: Detect file sources that need forwarder-side structured parsing (ms:iis:*)
+  ansible.builtin.set_fact:
+    uf_win_iis_sourcetypes: >-
+      {{ splunk_uf_win_monitor_files
+         | selectattr('sourcetype', 'defined')
+         | map(attribute='sourcetype')
+         | select('match', '^ms:iis:')
+         | unique | list }}
+
+- name: Deploy props.conf (forwarder-side parse settings for IIS file sources)
+  ansible.windows.win_template:
+    src: props.conf.j2
+    dest: "{{ splunk_uf_win_home }}\\etc\\apps\\forwarder_inputs\\local\\props.conf"
+  notify: restart forwarder
+  when: uf_win_iis_sourcetypes | length > 0
+
+- name: Remove stale props.conf when no IIS file sources remain (but the app still exists)
+  ansible.windows.win_file:
+    path: "{{ splunk_uf_win_home }}\\etc\\apps\\forwarder_inputs\\local\\props.conf"
+    state: absent
+  notify: restart forwarder
+  when:
+    - uf_win_iis_sourcetypes | length == 0
+    - (splunk_uf_win_monitor_channels | length > 0) or (splunk_uf_win_monitor_files | length > 0)
+
 - name: Remove any stale inputs.conf if the monitor list is now empty
   ansible.windows.win_file:
     path: "{{ splunk_uf_win_home }}\\etc\\apps\\forwarder_inputs"

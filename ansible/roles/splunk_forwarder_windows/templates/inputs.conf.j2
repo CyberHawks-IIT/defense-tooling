@@ -18,5 +18,8 @@ whitelist = {{ ch.whitelist }}
 disabled = 0
 index = {{ f.index | default(splunk_uf_win_index) }}
 sourcetype = {{ f.sourcetype }}
+{% if f.crc_salt is defined and f.crc_salt %}
+crcSalt = {{ f.crc_salt }}
+{% endif %}
 
 {% endfor %}
