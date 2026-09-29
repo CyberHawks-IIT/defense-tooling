@@ -30,8 +30,16 @@ splunk_uf_win_monitor_channels_common:
   - channel: Microsoft-Windows-WinRM/Operational
   - channel: Microsoft-Windows-Windows Defender/Operational
     whitelist: "5001-5013"
-
-splunk_uf_win_monitor_channels_extra: []
+  # RPC Firewall (zeronetworks) audit channel -- the Forced Authentication
+  # detection's coercion-RPC signal. RPC Firewall's rpcFireWall.dll is
+  # injected into the RPC servers (lsass/spoolsv/dfssvc/vss) on every Windows
+  # host and logs each call to the coercion interfaces (MS-EFSR / MS-DFSNM /
+  # MS-RPRN / MS-FSRVP) to Application/RPCFW as EventID 3, carrying the
+  # caller's Client Network Address (the coercer), the InterfaceUuid, and the
+  # authenticated Subject. Config is scoped to only those interfaces (see
+  # cyber-range detection_logging role's RpcFw.conf), so this channel is
+  # low-volume -- no whitelist needed. Deployed 2026-09-29.
+  - channel: RPCFW
 
 splunk_uf_win_monitor_channels: "{{ splunk_uf_win_monitor_channels_common + splunk_uf_win_monitor_channels_extra }}"
 
