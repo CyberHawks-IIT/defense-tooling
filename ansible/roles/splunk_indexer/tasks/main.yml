@@ -180,7 +180,7 @@
   block:
     - name: Optionally (re)build savedsearches.conf from the detection YAMLs
       ansible.builtin.command:
-        cmd: "python3 build/build_app.py"
+        cmd: "python3 build/build_app.py{{ ' --discord' if (discord_webhook_url | length > 0) else '' }}"
         chdir: "{{ splunk_detections_repo_dir }}"
       delegate_to: localhost
       become: false
@@ -208,6 +208,51 @@
         dest: "{{ splunk_home }}/etc/apps/{{ splunk_detections_app_name }}/"
         mode: "0644"
         directory_mode: "0755"
+      notify: restart splunk
+
+# Discord alerting (optional). When discord_webhook_url is set, install the
+# discord_alert custom alert action app and the webhook; the build step above
+# is also told to wire every search to it (--discord), which needs
+# splunk_detections_repo_dir. See defaults/main.yml and docs/discord-alerting.md.
+- name: Configure Discord alerting
+  when: discord_webhook_url | length > 0
+  block:
+    - name: Require splunk_detections_repo_dir for Discord (searches must be rebuilt with --discord)
+      ansible.builtin.assert:
+        that:
+          - splunk_deploy_detection_searches | bool
+          - splunk_detections_app_src | length > 0
+          - splunk_detections_repo_dir | length > 0
+        fail_msg: >-
+          discord_webhook_url is set, so the detection searches must be rebuilt
+          with `build_app.py --discord`. Set splunk_detections_app_src and
+          splunk_detections_repo_dir (a source checkout of splunk-detections),
+          or unset discord_webhook_url.
+
+    - name: Deploy the discord_alert alert-action app
+      ansible.builtin.copy:
+        src: discord_alert/
+        dest: "{{ splunk_home }}/etc/apps/discord_alert/"
+        mode: "0644"
+        directory_mode: "0755"
+      notify: restart splunk
+
+    - name: Make the alert-action script executable
+      ansible.builtin.file:
+        path: "{{ splunk_home }}/etc/apps/discord_alert/bin/discord_alert.py"
+        mode: "0755"
+
+    - name: Ensure the app's local/ directory exists
+      ansible.builtin.file:
+        path: "{{ splunk_home }}/etc/apps/discord_alert/local"
+        state: directory
+        mode: "0755"
+
+    - name: Deploy the webhook URL into the app's local/alert_actions.conf (secret, not in default/)
+      ansible.builtin.template:
+        src: discord_alert_actions_local.conf.j2
+        dest: "{{ splunk_home }}/etc/apps/discord_alert/local/alert_actions.conf"
+        mode: "0600"
       notify: restart splunk
 
 - name: Configure Splunk DB Connect for SQL Server telemetry (see CLAUDE.md, monitoring rollout plan step 4 follow-up)

@@ -1,0 +1,7 @@
+## Deployed by the splunk_indexer role into the discord_alert app's
+## local/alert_actions.conf. Holds the webhook URL (a secret), which is why it
+## lives in local/ (Ansible-managed) rather than the committed default/. Splunk
+## merges this over default/alert_actions.conf.
+[discord_alert]
+param.webhook_url = {{ discord_webhook_url }}
+param.max_rows = {{ discord_max_rows }}

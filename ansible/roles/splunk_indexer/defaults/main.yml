@@ -41,6 +41,17 @@ splunk_detections_repo_dir: ""
 # The app directory name created under $SPLUNK_HOME/etc/apps.
 splunk_detections_app_name: cyberhawks_detections
 
+# Discord alerting (optional). Set discord_webhook_url (vault it) to a Discord
+# channel webhook to install the `discord_alert` custom alert action and wire
+# every deployed detection to it (this also rebuilds the detections app with
+# `build_app.py --discord`, so it requires splunk_detections_repo_dir to be set
+# too). Empty = no Discord (the app is not installed and searches carry no
+# alert action).
+discord_webhook_url: ""
+# Max result rows posted per fired alert (one embed each), to avoid flooding a
+# channel if a search returns many rows at once.
+discord_max_rows: 10
+
 # Whether to configure Splunk DB Connect to pull the SQL Server telemetry
 # cyber-range's "SQL Server telemetry + Certificate Services auditing"
 # work (see that repo's CLAUDE.md) produces on sql1/sql2 -- the Extended

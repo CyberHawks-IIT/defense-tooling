@@ -20,6 +20,7 @@ for the concrete addresses these examples are based on.
 | `splunk_forwarder_windows` role | Same, for Windows hosts (WinRM, `.msi`) — monitor channels deliberately left empty until step 3 decides what's forwarded | Built + verified |
 | `scripts/proxmox/setup-mirror.sh` | Mirrors a router's interfaces to a sensor via `tc` | Built + verified |
 | `scripts/proxmox/create-privileged-lxc.sh` | Builds a privileged LXC without the linked-clone trap | Built + verified |
+| `discord_alert` alert action | Optional: post every fired Splunk detection to a Discord webhook as an embed — see [docs/discord-alerting.md](docs/discord-alerting.md) | Built |
 
 **Not here:** detection content (searches, correlation logic) — that's
 [splunk-detections](https://github.com/CyberHawks-IIT/splunk-detections).
@@ -33,6 +34,12 @@ This repo only gets data *in*.
 - Splunk packages downloaded by hand — see [docs/add-ons.md](docs/add-ons.md) (Splunkbase requires a login; nothing here can automate that).
 
 ## Getting started
+
+> **Building the full CyberHawks range + monitoring?** Follow the end-to-end,
+> step-by-step guide in cyber-range:
+> **[range-with-monitoring.md](https://github.com/CyberHawks-IIT/cyber-range/blob/main/docs/setup/range-with-monitoring.md)**
+> — it sequences this repo together with the range and the detection content.
+> The steps below are the standalone, this-repo-only path.
 
 1. Read [docs/add-ons.md](docs/add-ons.md) and download what you need.
 2. Read [docs/manual-prerequisites.md](docs/manual-prerequisites.md) — one-time Proxmox host settings this repo assumes are done.
