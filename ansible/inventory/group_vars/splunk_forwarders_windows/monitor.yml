@@ -17,19 +17,28 @@
 splunk_uf_win_security_whitelist_extra: ""
 
 splunk_uf_win_monitor_channels_common:
+  # 2026-09-29 review-pass prune: dropped 4657 (registry value modified) and
+  # 4720 (user account created) -- no shipped detection consumes either
+  # (Security Software Tampering, which would have used 4657, stays design-only
+  # per the user's Defender-tamper-protection instruction).
   - channel: Security
     whitelist: >-
-      1102,4624,4625,4656,4657,4662,4663,4673,4674,4697,4698,4720,4728,4729,4732,4733,4741,4756,4757,4768,4769,4771,5136,5137,5145{{
+      1102,4624,4625,4656,4662,4663,4673,4674,4697,4698,4728,4729,4732,4733,4741,4756,4757,4768,4769,4771,5136,5137,5145{{
       "," + splunk_uf_win_security_whitelist_extra if splunk_uf_win_security_whitelist_extra else "" }}
+  # 2026-09-29 prune: dropped System 7040 (service state changed) -- only the
+  # design-only Security Software Tampering would have used it. 104 (log
+  # cleared) feeds Event Log Clear; 7045 (service installed) is the Service
+  # Creation detections' backstop -- both kept.
   - channel: System
-    whitelist: "104,7040,7045"
+    whitelist: "104,7045"
   - channel: Microsoft-Windows-Sysmon/Operational
     renderXml: true
     sourcetype: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
-  - channel: Microsoft-Windows-WMI-Activity/Operational
+  # 2026-09-29 prune: removed the WMI-Activity/Operational channel (dead
+  # shadow-copy path; Lateral Movement: WMI uses Sysmon EID1) and the Windows
+  # Defender/Operational 5001-5013 channel (Security Software Tampering stays
+  # design-only). WinRM/Operational is kept -- Lateral Movement: WinRM (EID 91).
   - channel: Microsoft-Windows-WinRM/Operational
-  - channel: Microsoft-Windows-Windows Defender/Operational
-    whitelist: "5001-5013"
   # RPC Firewall (zeronetworks) audit channel -- the Forced Authentication
   # detection's coercion-RPC signal. RPC Firewall's rpcFireWall.dll is
   # injected into the RPC servers (lsass/spoolsv/dfssvc/vss) on every Windows
