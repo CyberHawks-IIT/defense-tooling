@@ -21,9 +21,20 @@ splunk_uf_win_monitor_channels_common:
   # 4720 (user account created) -- no shipped detection consumes either
   # (Security Software Tampering, which would have used 4657, stays design-only
   # per the user's Defender-tamper-protection instruction).
+  # 2026-09-29 ingest prune: dropped 4674 (privileged-object operation). With
+  # FullPrivilegeAuditing on, 4674 fired on EVERY SeBackupPrivilege use --
+  # ~550 MB/day on workstation alone, almost all benign desktop apps (Edge
+  # WebView, Teams, M365 Copilot, OneDrive, explorer, ...) that routinely
+  # exercise backup privilege at startup. It had exactly two consumers,
+  # Windows Credential Dump (Local) and (Remote); both were reworked off it
+  # onto the 4656 Handle-Manipulation hive-open (which also names the hive) +
+  # 4663/4673, so 4674 now has no consumer. 4673 is KEPT -- the Remote
+  # detection's regdump path keys on it (svchost SeBackupPrivilege enable with
+  # no hive-export open), and its steady-state volume is modest (~15 MB/day;
+  # the bursty numbers seen while testing were the dump attacks themselves).
   - channel: Security
     whitelist: >-
-      1102,4624,4625,4656,4662,4663,4673,4674,4697,4698,4728,4729,4732,4733,4741,4756,4757,4768,4769,4771,5136,5137,5145{{
+      1102,4624,4625,4656,4662,4663,4673,4697,4698,4728,4729,4732,4733,4741,4756,4757,4768,4769,4771,5136,5137,5145{{
       "," + splunk_uf_win_security_whitelist_extra if splunk_uf_win_security_whitelist_extra else "" }}
     # 2026-09-29: the forwarder's own 4673/4674 feedback loop. With
     # FullPrivilegeAuditing on (cyber-range, for the SAM/LSA dump detections),
@@ -39,17 +50,48 @@ splunk_uf_win_monitor_channels_common:
     # the path's backslashes on purpose -- literal `\\` pairs got collapsed to
     # `\` through one of the copy/quoting layers when first applied live,
     # silently turning `\P`/`\S` into regex escapes.
+    # `.` stands in for the path's backslashes on purpose -- literal `\\`
+    # pairs got collapsed to `\` through a copy/quoting layer when first
+    # applied live, silently turning `\P`/`\S` into regex escapes.
     blacklist:
-      - 'EventCode="^(4673|4674)$" Message="Process Name:\s+C:.Program Files.SplunkUniversalForwarder."'
+      # The forwarder's own SeBackupPrivilege feedback loop (4673 reading the
+      # Security log under FullPrivilegeAuditing). 4674 is no longer forwarded
+      # at all (dropped from the whitelist), so this now only needs 4673.
+      - 'EventCode="^4673$" Message="Process Name:\s+C:.Program Files.SplunkUniversalForwarder."'
+      # 2026-09-29 ingest prune: lsass.exe's own 4656/4663 -- it reads the SAM
+      # and SECURITY hives (and the machine-account secret) constantly during
+      # normal authentication (~25 MB/day). Every detection that consumes
+      # 4656/4663 (Credential Dump Local, DPAPI, NTDS.dit) already EXCLUDES
+      # lsass as baseline noise, so dropping it at the forwarder loses no
+      # signal -- excluding a constant legitimate actor, not a tool match.
+      - 'EventCode="^(4656|4663)$" Message="Process Name:\s+C:.Windows.System32.lsass.exe"'
+      # 2026-09-29 ingest prune: the DCs' own machine accounts (DC1$/DC2$)
+      # doing replication Read Property, the bulk of 4662 (~32 MB/day). The
+      # DCSync detection already excludes DC-to-DC replication in SPL, and a
+      # real DCSync runs as a compromised USER, never as DC$ -- so dropping
+      # DC$ 4662 at the forwarder cannot hide an attack. Harmless on member
+      # servers (they never emit a DC$ 4662).
+      - 'EventCode="^4662$" Message="Account Name:\s+DC\d[$]"'
   # 2026-09-29 prune: dropped System 7040 (service state changed) -- only the
   # design-only Security Software Tampering would have used it. 104 (log
   # cleared) feeds Event Log Clear; 7045 (service installed) is the Service
   # Creation detections' backstop -- both kept.
   - channel: System
     whitelist: "104,7045"
+  # 2026-09-29 ingest prune: whitelist the Sysmon channel to only the event
+  # IDs a detection actually consumes -- 1 (ProcessCreate, WMI lateral
+  # movement), 10 (ProcessAccess->lsass, LSASS Memory Access, ready if PPL is
+  # ever bypassed), 19/20/21 (WmiEvent, WMI Event Subscription). Sysmon logs
+  # EID 5 (ProcessTerminate) by default with no rule to suppress it -- ~96
+  # MB/day range-wide with zero consumers. This also drops any EID 17/18
+  # (PipeEvent) still emitted by hosts whose live Sysmon config drifted to an
+  # old `\efsrpc` pipe rule (the committed sysmon_config.xml has no pipe rule;
+  # coercion detection moved to RPC Firewall long ago), so that drift no
+  # longer reaches Splunk regardless.
   - channel: Microsoft-Windows-Sysmon/Operational
     renderXml: true
     sourcetype: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
+    whitelist: "1,10,19,20,21"
   # 2026-09-29 prune: removed the WMI-Activity/Operational channel (dead
   # shadow-copy path; Lateral Movement: WMI uses Sysmon EID1) and the Windows
   # Defender/Operational 5001-5013 channel (Security Software Tampering stays
