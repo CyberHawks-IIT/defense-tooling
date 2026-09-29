@@ -17,6 +17,16 @@ splunk_admin_password: "changeme"          # vault this in a real deployment
 splunk_addons_dir: /path/to/downloaded/addons   # directory of .tgz/.spl files
 splunk_receiving_port: 9997
 
+# --- splunk_indexer role: splunk-detections saved searches ---
+# Deploy the detection content from the sibling splunk-detections repo. With
+# the three repos checked out side by side and Ansible run from
+# defense-tooling/ansible, this is ../../../splunk-detections/app. Leave empty
+# to skip (e.g. if you deploy the app by hand). Optionally set
+# splunk_detections_repo_dir to the repo root to rebuild savedsearches.conf
+# from the detection YAMLs first (needs python3 on the control node).
+splunk_detections_app_src: /path/to/splunk-detections/app
+# splunk_detections_repo_dir: /path/to/splunk-detections
+
 # --- splunk_indexer role: DB Connect / SQL Server telemetry ---
 # (monitoring rollout plan step 4 follow-up — see CLAUDE.md). This is the
 # CURRENT admin password (for REST calls against an already-running

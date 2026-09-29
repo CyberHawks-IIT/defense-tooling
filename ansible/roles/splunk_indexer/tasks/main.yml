@@ -166,6 +166,50 @@
         mode: "0644"
       notify: restart splunk
 
+# Deploy the splunk-detections app itself (the saved searches). The
+# dt_detection_content block above ships the knowledge objects the searches
+# depend on (indexes, macros, eventtypes, the known_range_hosts lookup); this
+# ships the searches. splunk-detections is a separate repo, so point
+# splunk_detections_app_src at its app/ directory (e.g. a sibling checkout:
+# ../splunk-detections/app). Leave it empty to skip (e.g. option-1 setups, or
+# if you deploy the detection content by hand).
+- name: Deploy the splunk-detections saved-search app
+  when:
+    - splunk_deploy_detection_searches | bool
+    - splunk_detections_app_src | length > 0
+  block:
+    - name: Optionally (re)build savedsearches.conf from the detection YAMLs
+      ansible.builtin.command:
+        cmd: "python3 build/build_app.py"
+        chdir: "{{ splunk_detections_repo_dir }}"
+      delegate_to: localhost
+      become: false
+      changed_when: true
+      when: splunk_detections_repo_dir | length > 0
+
+    - name: Assert the app source directory exists on the control node
+      ansible.builtin.stat:
+        path: "{{ splunk_detections_app_src }}/default/savedsearches.conf"
+      delegate_to: localhost
+      become: false
+      register: sd_app_stat
+
+    - name: Fail clearly if the detections app was not found
+      ansible.builtin.fail:
+        msg: >-
+          splunk_detections_app_src ({{ splunk_detections_app_src }}) has no
+          default/savedsearches.conf. Point it at the splunk-detections repo's
+          app/ directory, or set splunk_deploy_detection_searches: false.
+      when: not sd_app_stat.stat.exists
+
+    - name: Copy the detections app into $SPLUNK_HOME/etc/apps
+      ansible.builtin.copy:
+        src: "{{ splunk_detections_app_src }}/"
+        dest: "{{ splunk_home }}/etc/apps/{{ splunk_detections_app_name }}/"
+        mode: "0644"
+        directory_mode: "0755"
+      notify: restart splunk
+
 - name: Configure Splunk DB Connect for SQL Server telemetry (see CLAUDE.md, monitoring rollout plan step 4 follow-up)
   when: splunk_deploy_mssql_dbconnect
   block:

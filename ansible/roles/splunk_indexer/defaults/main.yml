@@ -25,6 +25,22 @@ splunk_receiving_port: 9997
 # (splunk_forwarder_windows role).
 splunk_deploy_detection_content: true
 
+# Whether to deploy the splunk-detections app (the actual saved searches).
+# splunk-detections is a separate repo, so this is off-by-source: set
+# splunk_detections_app_src to that repo's app/ directory to enable it.
+splunk_deploy_detection_searches: true
+# Path on the CONTROL NODE to the splunk-detections repo's app/ directory.
+# With the repos checked out side by side and Ansible run from
+# defense-tooling/ansible, ../../../splunk-detections/app. Empty = skip.
+splunk_detections_app_src: ""
+# Optional: path to the splunk-detections repo root. If set, build_app.py is
+# run there first to regenerate app/default/savedsearches.conf from the
+# detection YAMLs before deploying (needs python3 on the control node). Empty
+# = deploy the committed app/ as-is.
+splunk_detections_repo_dir: ""
+# The app directory name created under $SPLUNK_HOME/etc/apps.
+splunk_detections_app_name: cyberhawks_detections
+
 # Whether to configure Splunk DB Connect to pull the SQL Server telemetry
 # cyber-range's "SQL Server telemetry + Certificate Services auditing"
 # work (see that repo's CLAUDE.md) produces on sql1/sql2 -- the Extended

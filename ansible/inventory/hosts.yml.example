@@ -1,4 +1,9 @@
 # Copy to hosts.yml and fill in your own hosts. hosts.yml is gitignored.
+#
+# This example mirrors the cyberhawks.lab deployment (see the cyber-range
+# repo): a Zeek sensor + Splunk indexer on the defense network, forwarders on
+# the demo box, and Windows forwarders on all 7 AD range VMs. Trim it to
+# whatever you actually run.
 all:
   children:
     zeek_sensors:
@@ -10,31 +15,46 @@ all:
         splunk:
           ansible_host: 10.0.10.2
     splunk_forwarders:
-      # Any Linux host you want shipping logs to the indexer. Include the
-      # zeek_sensors group here too, or leave it out and run the forwarder
-      # role separately against the sensor — either works, this project's
-      # example does the latter (see playbooks/site.yml).
+      # Any Linux host you want shipping logs to the indexer. This project
+      # forwards from the Zeek sensor and the demo service-abuse box.
       hosts:
         zeek:
           ansible_host: 10.0.10.3
+        demo:
+          ansible_host: 10.1.1.1
     splunk_forwarders_windows:
-      # Any Windows host you want shipping logs to the indexer, e.g. AD
-      # domain controllers. Needs WinRM reachability, not SSH — see the
-      # group_vars below. What Windows Event Log channels get forwarded
-      # (splunk_uf_win_monitor_channels) belongs in
-      # group_vars/splunk_forwarders_windows/ for values common to every
-      # member of this group, and host_vars/<hostname>.yml for host-specific
-      # additions (e.g. domain controllers needing an extra channel a member
-      # server doesn't) — see host_vars/dc1.yml.example and CLAUDE.md's
-      # monitoring rollout plan step 3.
+      # The Windows hosts shipping logs to the indexer. Needs WinRM
+      # reachability, not SSH — see the group_vars below. Which Windows Event
+      # Log channels get forwarded (splunk_uf_win_monitor_channels) belongs in
+      # group_vars/splunk_forwarders_windows/ for values common to every member,
+      # and host_vars/<hostname>.yml for host-specific additions (e.g. the two
+      # DCs need an extra Directory Service channel) — see host_vars/dc1.yml.example
+      # and CLAUDE.md's monitoring rollout plan step 3.
       hosts:
         dc1:
           ansible_host: 10.0.2.2
+        dc2:
+          ansible_host: 10.0.2.3
+        ca:
+          ansible_host: 10.0.2.4
+        web:
+          ansible_host: 10.0.2.5
+        sql1:
+          ansible_host: 10.0.2.6
+        sql2:
+          ansible_host: 10.0.2.7
+        workstation:
+          ansible_host: 10.0.2.8
       vars:
         ansible_connection: winrm
         ansible_winrm_transport: ntlm
         ansible_port: 5985
-        ansible_user: Administrator
+        # Domain Administrator, not local: ca and sql2 have LAPS-managed local
+        # Administrator passwords (rotated), but the domain account works
+        # uniformly across all 7 domain-joined hosts. (cyber-range's own
+        # playbooks instead use a dedicated svc-provision local account; this
+        # repo stays standalone and uses the domain admin it already vaults.)
+        ansible_user: "CYBERHAWKS\\Administrator"
         ansible_password: "{{ vault_windows_admin_password }}"
         ansible_winrm_server_cert_validation: ignore
         ansible_become: false  # already connecting as Administrator over WinRM
