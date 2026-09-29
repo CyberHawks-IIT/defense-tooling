@@ -51,9 +51,8 @@ all:
         ansible_port: 5985
         # Domain Administrator, not local: ca and sql2 have LAPS-managed local
         # Administrator passwords (rotated), but the domain account works
-        # uniformly across all 7 domain-joined hosts. (cyber-range's own
-        # playbooks instead use a dedicated svc-provision local account; this
-        # repo stays standalone and uses the domain admin it already vaults.)
+        # uniformly across all 7 domain-joined hosts (LAPS never touches it).
+        # cyber-range's playbooks connect the same way.
         ansible_user: "CYBERHAWKS\\Administrator"
         ansible_password: "{{ vault_windows_admin_password }}"
         ansible_winrm_server_cert_validation: ignore
