@@ -1,9 +1,22 @@
 # DC-only addition to splunk_uf_win_monitor_channels — see
 # group_vars/all.yml.example's note on splunk_forwarder_windows for how this
-# combines with the common list. 1644 (LDAP query content, both Field
-# Engineering thresholds set to 0) only fires — and only matters — on domain
-# controllers, so it's not part of the baseline every AD member gets.
+# combines with the common list. 1644 (LDAP query content; Field Engineering
+# 5, all three search thresholds at 1 so every search logs) only fires — and
+# only matters — on domain controllers, so it's not part of the baseline
+# every AD member gets.
+#
+# The blacklist drops the DCs' own background searches, which are ~98% of
+# 1644 volume once every search logs (~52 MB/day across dc1+dc2, measured
+# 2026-09-29) and which the LDAP Query detection never uses: a DC's own
+# machine account (DC1$/DC2$, over loopback, link-local IPv6, or DC-to-DC)
+# and internal DS operations (NTDSAPI/KCC/Internal clients, logged with
+# user UNAVAILABLE). Deliberately NOT all `$` accounts -- an attacker
+# querying with a machine account they created must still be logged. The
+# domain part excludes `\`, so e.g. "CYBERHAWKS\EVILDC1$" is not dropped.
+# `.` stands in for the domain\user backslash to survive quoting layers.
 # Same content belongs in host_vars/dc2.yml — dc1 and dc2 are peers here.
 splunk_uf_win_monitor_channels_extra:
   - channel: "Directory Service"
     whitelist: "1644"
+    blacklist:
+      - 'EventCode="^1644$" Message="(?i)User:\s+(([a-z0-9.-]+.)?dc\d+[$]|UNAVAILABLE)\s*$"'

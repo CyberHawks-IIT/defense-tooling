@@ -11,6 +11,11 @@ renderXml = 1
 {% if ch.whitelist is defined and ch.whitelist %}
 whitelist = {{ ch.whitelist }}
 {% endif %}
+{% if ch.blacklist is defined and ch.blacklist %}
+{% for b in ch.blacklist %}
+blacklist{{ loop.index }} = {{ b }}
+{% endfor %}
+{% endif %}
 
 {% endfor %}
 {% for f in splunk_uf_win_monitor_files %}

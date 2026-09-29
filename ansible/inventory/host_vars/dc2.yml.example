@@ -1,4 +1,7 @@
-# See host_vars/dc1.yml.example — dc1 and dc2 are peers, same addition.
+# See host_vars/dc1.yml.example — dc1 and dc2 are peers, same addition
+# (including the blacklist for the DCs' own background searches).
 splunk_uf_win_monitor_channels_extra:
   - channel: "Directory Service"
     whitelist: "1644"
+    blacklist:
+      - 'EventCode="^1644$" Message="(?i)User:\s+(([a-z0-9.-]+.)?dc\d+[$]|UNAVAILABLE)\s*$"'

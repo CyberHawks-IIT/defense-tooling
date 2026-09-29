@@ -25,6 +25,22 @@ splunk_uf_win_monitor_channels_common:
     whitelist: >-
       1102,4624,4625,4656,4662,4663,4673,4674,4697,4698,4728,4729,4732,4733,4741,4756,4757,4768,4769,4771,5136,5137,5145{{
       "," + splunk_uf_win_security_whitelist_extra if splunk_uf_win_security_whitelist_extra else "" }}
+    # 2026-09-29: the forwarder's own 4673/4674 feedback loop. With
+    # FullPrivilegeAuditing on (cyber-range, for the SAM/LSA dump detections),
+    # every SeBackupPrivilege use logs a 4674 -- including the UF's own
+    # splunkd.exe / splunk-winevtlog.exe / splunk-regmon.exe reading the
+    # Security log, which then reads + ships that 4674, which logs another.
+    # Measured live: ~4,500 events/min per host (ca/web/sql1/workstation),
+    # ~29 GB/day of license vs Splunk Free's 500 MB. Drop them at the
+    # forwarder: excluding a constant legitimate actor (the UF's own
+    # binaries), not matching an attacker tool, so no detection loses signal.
+    # Advanced-format blacklist (key="regex") coexists with the event-ID
+    # whitelist above; an event on both lists is dropped. `.` stands in for
+    # the path's backslashes on purpose -- literal `\\` pairs got collapsed to
+    # `\` through one of the copy/quoting layers when first applied live,
+    # silently turning `\P`/`\S` into regex escapes.
+    blacklist:
+      - 'EventCode="^(4673|4674)$" Message="Process Name:\s+C:.Program Files.SplunkUniversalForwarder."'
   # 2026-09-29 prune: dropped System 7040 (service state changed) -- only the
   # design-only Security Software Tampering would have used it. 104 (log
   # cleared) feeds Event Log Clear; 7045 (service installed) is the Service
