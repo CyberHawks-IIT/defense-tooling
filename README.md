@@ -7,7 +7,7 @@ cross-network traffic in the first place.
 It's standalone by design and works against any Proxmox host, router, and pair
 of Debian 12 boxes. If you're using it alongside
 [cyber-range](https://github.com/CyberHawks-IIT/cyber-range), see that repo's
-[network layout doc](https://github.com/CyberHawks-IIT/cyber-range/blob/main/docs/network-and-infrastructure.md)
+[network layout doc](https://github.com/CyberHawks-IIT/cyber-range/blob/master/docs/network-and-infrastructure.md)
 for the concrete addresses these examples are based on.
 
 ## What's here
@@ -41,7 +41,7 @@ repo only gets data in.
 
 > **Building the full CyberHawks range and monitoring?** Follow the end-to-end,
 > step-by-step guide in cyber-range,
-> **[range-with-monitoring.md](https://github.com/CyberHawks-IIT/cyber-range/blob/main/docs/setup/range-with-monitoring.md)**.
+> **[range-with-monitoring.md](https://github.com/CyberHawks-IIT/cyber-range/blob/master/docs/setup/range-with-monitoring.md)**.
 > It sequences this repo together with the range and the detection content. The
 > steps below are the standalone, this-repo-only path.
 
