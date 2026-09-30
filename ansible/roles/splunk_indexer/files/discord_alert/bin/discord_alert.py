@@ -7,7 +7,12 @@ The payload carries the action's configured params (webhook_url, max_rows,
 optional field list, optional attacker field) and the path to the search's
 gzipped results CSV.
 
-Each result row becomes a Discord embed:
+Each result row becomes a Discord embed. The detections run in per-result
+mode (alert.digest_mode = 0, so Splunk can throttle each attempt on its own
+fields), where Splunk invokes this script once per result row and hands that
+row over as the payload's `result`; with `param.per_result = 1` only that row
+is posted. Otherwise (digest mode) every row of the results file is posted,
+in messages of up to 10 embeds (Discord's per-message limit):
   - title       = the saved-search name (this project's convention: the
                   Splunk alert name IS the embed title)
   - description = the attacker, as "Full Name (IP)" -- the row's attacker IP
@@ -37,6 +42,9 @@ DISCORD_COLOR = 0xE01E5A  # a red, for "detection fired"
 # Discord hard limits: <=10 embeds per message, <=25 fields per embed,
 # field value <=1024 chars, description <=4096 chars.
 MAX_EMBEDS = 10
+# Digest mode posts at most this many rows (in messages of MAX_EMBEDS) so a
+# runaway search can't flood the channel.
+MAX_ROWS = 50
 MAX_FIELDS = 25
 MAX_FIELD_VALUE = 1024
 MAX_DESCRIPTION = 4096
@@ -140,34 +148,41 @@ def main():
         return 0  # not an error: Discord simply isn't set up
 
     try:
-        max_rows = int(config.get("max_rows") or 10)
+        max_rows = int(config.get("max_rows") or MAX_ROWS)
     except (TypeError, ValueError):
-        max_rows = 10
-    max_rows = max(1, min(max_rows, MAX_EMBEDS))
+        max_rows = MAX_ROWS
+    max_rows = max(1, min(max_rows, MAX_ROWS))
+    per_result = str(config.get("per_result") or "").strip() in ("1", "true")
 
     field_names = [f.strip() for f in (config.get("fields") or "").split(",") if f.strip()]
     attacker_field = (config.get("attacker_field") or "").strip() or "attacker_ip"
     search_name = payload.get("search_name")
 
-    results_file = payload.get("results_file")
-    if not results_file:
-        log("payload has no results_file")
-        return 1
-
-    rows = read_rows(results_file, max_rows)
+    if per_result and isinstance(payload.get("result"), dict):
+        rows = [payload["result"]]
+    else:
+        results_file = payload.get("results_file")
+        if not results_file:
+            log("payload has no results_file")
+            return 1
+        rows = read_rows(results_file, max_rows)
     if not rows:
         log("no result rows -- nothing to post")
         return 0
 
     attackers = load_attackers()
     embeds = [build_embed(search_name, row, field_names, attacker_field, attackers) for row in rows]
-    try:
-        status = post(webhook_url, embeds)
-        log("posted %d embed(s) to Discord (HTTP %s)" % (len(embeds), status))
-    except Exception as exc:  # noqa: BLE001 -- report any delivery failure to Splunk
-        log("failed to post to Discord: %s" % exc)
-        return 2
-    return 0
+    failed = False
+    for i in range(0, len(embeds), MAX_EMBEDS):
+        batch = embeds[i:i + MAX_EMBEDS]
+        who = ", ".join(e["description"].replace("\n", " / ") for e in batch)
+        try:
+            status = post(webhook_url, batch)
+            log("%s: posted %d embed(s) to Discord (HTTP %s): %s" % (search_name, len(batch), status, who))
+        except Exception as exc:  # noqa: BLE001 -- report any delivery failure to Splunk
+            log("%s: failed to post %d embed(s) to Discord (%s): %s" % (search_name, len(batch), who, exc))
+            failed = True
+    return 2 if failed else 0
 
 
 if __name__ == "__main__":
