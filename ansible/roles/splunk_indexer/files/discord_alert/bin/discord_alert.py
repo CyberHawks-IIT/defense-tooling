@@ -35,6 +35,7 @@ import csv
 import gzip
 import json
 import os
+import re
 import sys
 import urllib.request
 
@@ -98,6 +99,35 @@ def mv_values(value):
     return [str(v).strip() for v in items if str(v).strip()]
 
 
+# Discord renders markdown in embed descriptions and field values, so event
+# data like an LDAP filter "(|(cn=*a*))" or "__init__" would lose characters to
+# italics/bold. Backslash-escape anything markdown-significant so values show
+# literally (Discord accepts a backslash before any ASCII punctuation):
+#   - inline: \ * _ ~ ` | (spoilers) < (mentions/timestamps/custom emoji)
+#     [ ] (masked links) -- anywhere in the text;
+#   - block: # (headings), -# (subtext), > (quotes), - + (lists), "1." (ordered
+#     lists) -- only at the start of a line and followed by a space, where
+#     they are syntax (so an IP like "10.0.2.5" or a range "1-5" is untouched).
+MD_INLINE = re.compile(r"([\\*_~`|<\[\]])")
+MD_LINE_START = re.compile(r"^(\s*)(?:([#>+-])(?=[\s#])|(\d+)([.)])(?=\s))", re.MULTILINE)
+
+
+def md_escape(text, limit=None):
+    """Escape text for a Discord markdown field. With `limit`, truncate to at
+    most that many characters without leaving a dangling escape backslash."""
+    text = MD_INLINE.sub(r"\\\1", text)
+    text = MD_LINE_START.sub(
+        lambda m: m.group(1) + ("\\" + m.group(2) if m.group(2) else m.group(3) + "\\" + m.group(4)),
+        text)
+    if limit is not None and len(text) > limit:
+        text = text[:limit]
+        # An odd run of trailing backslashes means the cut split an escape.
+        trailing = len(text) - len(text.rstrip("\\"))
+        if trailing % 2:
+            text = text[:-1]
+    return text
+
+
 def describe_attacker(value, attackers):
     ips = mv_values(value)
     if not ips:
@@ -116,14 +146,16 @@ def build_embed(search_name, row, field_names, attacker_field, attackers):
     for col in cols:
         # Render a multivalue field as "a, b, c" -- never the list repr, never
         # a raw newline-joined blob.
-        value = ", ".join(mv_values(row.get(col)))
+        # Field names (our own column names) and the title (the saved-search
+        # name) are left unescaped -- they contain no markdown.
+        value = md_escape(", ".join(mv_values(row.get(col))), MAX_FIELD_VALUE)
         if not value:
             continue  # Discord rejects empty field values
-        fields.append({"name": col, "value": value[:MAX_FIELD_VALUE], "inline": True})
+        fields.append({"name": col, "value": value, "inline": True})
 
     return {
         "title": (search_name or "Splunk alert")[:256],
-        "description": describe_attacker(row.get(attacker_field), attackers)[:MAX_DESCRIPTION],
+        "description": md_escape(describe_attacker(row.get(attacker_field), attackers), MAX_DESCRIPTION),
         "color": DISCORD_COLOR,
         "fields": fields[:MAX_FIELDS],
     }
