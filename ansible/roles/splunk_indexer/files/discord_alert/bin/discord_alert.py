@@ -89,9 +89,17 @@ def read_rows(results_file, limit):
     return rows
 
 
+def mv_values(value):
+    """A result field's values as a list of non-empty strings. A multivalue
+    field arrives as a Python list in the per-result JSON payload (result), or
+    as newline-joined text in the digest-mode results CSV -- handle both, so a
+    list never reaches Discord as its "['1', '10', ...]" repr."""
+    items = value if isinstance(value, (list, tuple)) else str(value if value is not None else "").split("\n")
+    return [str(v).strip() for v in items if str(v).strip()]
+
+
 def describe_attacker(value, attackers):
-    # Splunk's results CSV joins a multivalue field's values with newlines.
-    ips = [ip.strip() for ip in str(value or "").split("\n") if ip.strip()]
+    ips = mv_values(value)
     if not ips:
         return UNKNOWN_ATTACKER
     return "\n".join("%s (%s)" % (attackers.get(ip, UNKNOWN_ATTACKER), ip) for ip in ips)
@@ -106,10 +114,12 @@ def build_embed(search_name, row, field_names, attacker_field, attackers):
 
     fields = []
     for col in cols:
-        val = row.get(col, "")
-        if val in (None, ""):
+        # Render a multivalue field as "a, b, c" -- never the list repr, never
+        # a raw newline-joined blob.
+        value = ", ".join(mv_values(row.get(col)))
+        if not value:
             continue  # Discord rejects empty field values
-        fields.append({"name": col, "value": str(val)[:MAX_FIELD_VALUE], "inline": True})
+        fields.append({"name": col, "value": value[:MAX_FIELD_VALUE], "inline": True})
 
     return {
         "title": (search_name or "Splunk alert")[:256],
