@@ -27,6 +27,14 @@ splunk_receiving_port: 9997
 splunk_detections_app_src: /path/to/splunk-detections/app
 # splunk_detections_repo_dir: /path/to/splunk-detections
 
+# --- splunk_indexer role: Discord alerting (optional) ---
+# A Discord channel webhook. Setting it installs the discord_alert alert
+# action and rebuilds every detection with `build_app.py --discord`, so it
+# also needs splunk_detections_repo_dir above. Vault it: anyone with the URL
+# can post to the channel. See docs/discord-alerting.md, including the
+# Proxmox-side attacker directory that names attackers in each alert.
+# discord_webhook_url: "https://discord.com/api/webhooks/..."
+
 # --- splunk_indexer role: DB Connect / SQL Server telemetry ---
 # (monitoring rollout plan step 4 follow-up — see CLAUDE.md). This is the
 # CURRENT admin password (for REST calls against an already-running
