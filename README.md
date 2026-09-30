@@ -20,7 +20,8 @@ for the concrete addresses these examples are based on.
 | `splunk_forwarder_windows` role | Same, for Windows hosts (WinRM, `.msi`). Monitor channels are left empty until step 3 decides what's forwarded | Built + verified |
 | `scripts/proxmox/setup-mirror.sh` | Mirrors a router's interfaces to a sensor via `tc` | Built + verified |
 | `scripts/proxmox/create-privileged-lxc.sh` | Builds a privileged LXC without the linked-clone trap | Built + verified |
-| `discord_alert` alert action | Optional. Posts every fired Splunk detection to a Discord webhook as an embed. See [docs/discord-alerting.md](docs/discord-alerting.md) | Built |
+| `discord_alert` alert action | Optional. Posts every fired Splunk detection to a Discord webhook as an embed. See [docs/discord-alerting.md](docs/discord-alerting.md) | Built + verified |
+| `scripts/proxmox/attacker-directory.py` | Keeps the IP to attacker-name table behind the Discord embeds in sync with Proxmox, plus manually assigned IPs | Built + verified |
 
 **Not here:** detection content (searches, correlation logic). That lives in
 [splunk-detections](https://github.com/CyberHawks-IIT/splunk-detections). This
@@ -90,6 +91,7 @@ defense-tooling/
   scripts/proxmox/
     setup-mirror.sh
     create-privileged-lxc.sh
+    attacker-directory.py
   docs/
     add-ons.md
     manual-prerequisites.md

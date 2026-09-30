@@ -1,0 +1,6 @@
+# Export the discord_alert alert action system-wide. Without this it is only
+# visible inside this app, and every detection search (in the
+# cyberhawks_detections app) fails with: Alert action "discord_alert" not found.
+[]
+access = read : [ * ], write : [ admin ]
+export = system
