@@ -370,6 +370,82 @@
         owner: "{{ ansible_user }}"
       notify: restart splunk
 
+    # Each input's checkpoint_key (see db_inputs.conf.j2) names a KV store
+    # document that must already exist: DB Connect only ever *updates* a
+    # checkpoint by key (confirmed live: a pinned key with no document fails
+    # "action=update status=failed" and the input re-reads from the init
+    # value again). Seed one per input with the conf's init value; after that
+    # DB Connect advances it itself. Existing documents are left alone, so
+    # re-running the role never rewinds a checkpoint.
+    - name: Collect the DB Connect input names
+      ansible.builtin.set_fact:
+        dbx_input_names: >-
+          {{ splunk_dbconnect_mssql_hosts | map(attribute='name')
+             | product(['_mssql_xe_text', '_mssql_audit']) | map('join') | list }}
+
+    - name: Read the installed DB Connect version (recorded in each checkpoint)
+      ansible.builtin.uri:
+        url: "https://localhost:8089/services/apps/local/splunk_app_db_connect?output_mode=json"
+        method: GET
+        user: "{{ splunk_dbconnect_admin_user }}"
+        password: "{{ splunk_dbconnect_admin_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        return_content: true
+      register: dbx_app_info
+
+    - name: Check which DB Connect checkpoint documents exist
+      ansible.builtin.uri:
+        url: "https://localhost:8089/servicesNS/nobody/splunk_app_db_connect/storage/collections/data/dbx_db_input/{{ item }}"
+        method: GET
+        user: "{{ splunk_dbconnect_admin_user }}"
+        password: "{{ splunk_dbconnect_admin_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200, 404]
+      loop: "{{ dbx_input_names }}"
+      register: dbx_checkpoints
+
+    - name: Seed missing DB Connect checkpoint documents
+      ansible.builtin.uri:
+        url: "https://localhost:8089/servicesNS/nobody/splunk_app_db_connect/storage/collections/data/dbx_db_input"
+        method: POST
+        user: "{{ splunk_dbconnect_admin_user }}"
+        password: "{{ splunk_dbconnect_admin_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        body_format: json
+        body:
+          _key: "{{ item.item }}"
+          inputName: "{{ item.item }}"
+          value: "1900-01-01 00:00:00.000"
+          columnType: 93
+          appVersion: "{{ dbx_app_info.json.entry[0].content.version }}"
+          timestamp: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%S.000Z') }}"
+        status_code: [200, 201]
+      loop: "{{ dbx_checkpoints.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: item.status == 404
+
+    # Before the pinned keys, every poll of every input left behind one
+    # orphaned checkpoint document (7,000+ after two days on the live range).
+    # Clear those for the managed inputs only; the KV query language has no
+    # $in/$nin, hence the $or/$ne chain.
+    - name: Delete orphaned checkpoint documents for the managed inputs
+      ansible.builtin.uri:
+        url: >-
+          https://localhost:8089/servicesNS/nobody/splunk_app_db_connect/storage/collections/data/dbx_db_input?query={{
+          {'$and': [{'$or': dbx_input_names | map('regex_replace', '^(.*)$', '{"inputName": "\1"}') | map('from_json') | list}]
+                   + (dbx_input_names | map('regex_replace', '^(.*)$', '{"_key": {"$ne": "\1"}}') | map('from_json') | list)}
+          | to_json | urlencode }}
+        method: DELETE
+        user: "{{ splunk_dbconnect_admin_user }}"
+        password: "{{ splunk_dbconnect_admin_password }}"
+        force_basic_auth: true
+        validate_certs: false
+        status_code: [200]
+
 # NOTE (2026-09-27): a prior version of this role deployed a *custom*
 # Splunk_TA_zeek/local/props.conf + transforms.conf here to retype each
 # Zeek log by filename (zeek_placeholder -> zeek:conn, zeek:dns, etc.).

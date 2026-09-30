@@ -4,8 +4,18 @@
 # mssql_xe_query.sql.j2/mssql_audit_query.sql.j2 in this same directory for
 # the actual queries, and CLAUDE.md's monitoring rollout plan step 4
 # follow-up for why each covers the detections it does.
+#
+# checkpoint_key pins each input's rising-column checkpoint to a KV store
+# document named after the input (seeded by the role, see tasks/main.yml).
+# DB Connect only records a checkpoint_key itself for inputs it created
+# through its own REST API; for these conf-written inputs it created a NEW
+# KV document every run and never found it again, so every poll re-read
+# every row since the init value and re-indexed them at the current time
+# (index_time_mode = current). That made the SQL detections re-fire every
+# minute (found 2026-09-30 while enabling Discord alerting).
 {% for item in splunk_dbconnect_mssql_hosts %}
 [{{ item.name }}_mssql_xe_text]
+checkpoint_key = {{ item.name }}_mssql_xe_text
 connection = {{ item.name }}_mssql
 mode = rising
 tail_rising_column_name = event_time
@@ -17,6 +27,7 @@ sourcetype = {{ splunk_dbconnect_mssql_xe_sourcetype }}
 query = {% include 'mssql_xe_query.sql.j2' %}
 
 [{{ item.name }}_mssql_audit]
+checkpoint_key = {{ item.name }}_mssql_audit
 connection = {{ item.name }}_mssql
 mode = rising
 tail_rising_column_name = event_time
