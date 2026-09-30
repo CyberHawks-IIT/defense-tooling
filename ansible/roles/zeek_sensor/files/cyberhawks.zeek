@@ -6,12 +6,22 @@
 # ends, and a UDP or ICMP flow only "ends" once it has been idle this long.
 # At the 1 minute default every UDP/ICMP detection (Ping Sweep, Name
 # Resolution Poisoning, UDP port scans) waited ~62s for its conn record.
-# At 5s they wait ~6s, the same as TCP (whose close/attempt delays are 5s).
-# The only side effect is that a UDP/ICMP exchange with a >5s gap is logged
-# as two records instead of one; those detections count distinct hosts or
-# ports, or pair records by their own timestamps, so splitting is harmless.
-redef udp_inactivity_timeout = 5 secs;
-redef icmp_inactivity_timeout = 5 secs;
+# A TCP flow is likewise held after its SYN goes unanswered, its RST, or its
+# FIN close (5s defaults each) before the record is written. All of these
+# are 1s here, so a finished flow reaches conn.log in ~1-2s instead of ~6s
+# (the RTT on this LAN is well under a millisecond, so 1s is still ample for
+# a SYN-ACK or a final ACK). The only side effect is that a flow with a >1s
+# gap is logged as two records instead of one; the conn.log detections count
+# distinct hosts or ports, or pair records by their own timestamps, so
+# splitting is harmless.
+redef udp_inactivity_timeout = 1 secs;
+redef icmp_inactivity_timeout = 1 secs;
+redef tcp_SYN_timeout = 1 secs;
+redef tcp_attempt_delay = 1 secs;
+redef tcp_reset_delay = 1 secs;
+redef tcp_close_delay = 1 secs;
+# Log writers buffer records and flush on this interval (default 1s).
+redef Log::flush_interval = 250 msec;
 
 # Immediate connection-open log for the directory-service ports, written the
 # moment the TCP handshake completes rather than when the flow closes (which is
