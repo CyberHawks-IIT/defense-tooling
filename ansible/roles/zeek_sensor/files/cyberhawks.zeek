@@ -2,6 +2,20 @@
 # local.zeek. Only settings the splunk-detections searches depend on live
 # here; everything else stays on Zeek's defaults.
 
+# Mirrored/SPAN capture (2026-09-30). This sensor analyzes copies of packets
+# mirrored from every guest's tap. The range's virtio NICs offload checksum
+# computation to the host, so a mirrored copy of an outbound packet carries an
+# incomplete/blank checksum that looks invalid to Zeek. By default Zeek drops
+# such packets before L4 reassembly -- conn.log (header-only) still records the
+# flow, but the Kerberos/DCE-RPC/LDAP application analyzers never see reassembled
+# payload and emit nothing. Only router-crossing traffic (re-checksummed by
+# pfSense) decoded, which is why kerberos.log was empty for all same-vnet
+# Kerberos and the S4U `impersonated` field was only recoverable for the
+# john-kali path. On a mirror sensor the checksums are not ours to validate, so
+# analyze the copies as-is. This restores kerberos/dce_rpc/ldap decode on every
+# path.
+redef ignore_checksums = T;
+
 # Detection latency (2026-09-30). Zeek writes a conn.log record when a flow
 # ends, and a UDP or ICMP flow only "ends" once it has been idle this long.
 # At the 1 minute default every UDP/ICMP detection (Ping Sweep, Name
