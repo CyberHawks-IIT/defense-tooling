@@ -72,6 +72,19 @@ splunk_uf_win_monitor_channels_common:
       # DC$ 4662 at the forwarder cannot hide an attack. Harmless on member
       # servers (they never emit a DC$ 4662).
       - 'EventCode="^4662$" Message="Account Name:\s+DC\d[$]"'
+      # 2026-09-30 ingest prune: 4656 handle-opens to objects no detection
+      # consumes (~13 MB/day, ~99% of all 4656; web alone ~15k/2d from
+      # powershell/services/MsMpEng touching WSMAN, service, cert-store and
+      # CatRoot objects). The only 4656 consumers are Credential Dump Local
+      # (Object_Name *MACHINE*SAM* / *MACHINE*SECURITY*), Credential Dump
+      # Remote (same), and NTDS.dit Extraction (*NTDS*ntds.dit*); DPAPI uses
+      # 4663 only, and 4663 stays unfiltered (~0.1 MB/day). This drops every
+      # 4656 whose Object Name line does NOT match one of those three
+      # patterns -- the negative lookahead mirrors the detections' own
+      # wildcards exactly, so nothing a detection matches is lost (validated
+      # against live keep/drop samples). `.` for the dot in ntds.dit and word
+      # substrings (no path backslashes) sidestep the \-collapse gotcha.
+      - 'EventCode="^4656$" Message="Object Name:\s+(?![^\r\n]*(?:MACHINE[^\r\n]*(?:SAM|SECURITY)|NTDS[^\r\n]*ntds.dit))"'
   # 2026-09-29 prune: dropped System 7040 (service state changed) -- only the
   # design-only Security Software Tampering would have used it. 104 (log
   # cleared) feeds Event Log Clear; 7045 (service installed) is the Service
@@ -80,18 +93,23 @@ splunk_uf_win_monitor_channels_common:
     whitelist: "104,7045"
   # 2026-09-29 ingest prune: whitelist the Sysmon channel to only the event
   # IDs a detection actually consumes -- 1 (ProcessCreate, WMI lateral
-  # movement), 10 (ProcessAccess->lsass, LSASS Memory Access, ready if PPL is
-  # ever bypassed), 19/20/21 (WmiEvent, WMI Event Subscription). Sysmon logs
+  # movement) and 19/20/21 (WmiEvent, WMI Event Subscription). Sysmon logs
   # EID 5 (ProcessTerminate) by default with no rule to suppress it -- ~96
   # MB/day range-wide with zero consumers. This also drops any EID 17/18
   # (PipeEvent) still emitted by hosts whose live Sysmon config drifted to an
   # old `\efsrpc` pipe rule (the committed sysmon_config.xml has no pipe rule;
   # coercion detection moved to RPC Firewall long ago), so that drift no
   # longer reaches Splunk regardless.
+  # 2026-09-30 ingest prune: dropped EID 10 (ProcessAccess->lsass), ~4.5 MB/day
+  # and effectively ALL of the Sysmon volume in steady state (EID 1/19/20/21
+  # only fire during an attack, ~0/day). It had no shipped consumer: the LSASS
+  # Memory Access detection is design-only in backlog.md and the technique is
+  # structurally blocked by LSASS PPL (RunAsPPL=2) on these builds. Re-add `10`
+  # here if that detection is ever shipped (which needs a PPL bypass first).
   - channel: Microsoft-Windows-Sysmon/Operational
     renderXml: true
     sourcetype: "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational"
-    whitelist: "1,10,19,20,21"
+    whitelist: "1,19,20,21"
   # 2026-09-29 prune: removed the WMI-Activity/Operational channel (dead
   # shadow-copy path; Lateral Movement: WMI uses Sysmon EID1) and the Windows
   # Defender/Operational 5001-5013 channel (Security Software Tampering stays
@@ -107,6 +125,14 @@ splunk_uf_win_monitor_channels_common:
   # cyber-range detection_logging role's RpcFw.conf), so this channel is
   # low-volume -- no whitelist needed. Deployed 2026-09-29.
   - channel: RPCFW
+
+# Default so hosts without a host_vars override (sql1/sql2/workstation) still
+# render -- only dc1/dc2 (Directory Service) and ca (ADCS) set a non-empty
+# extra list in their host_vars. Without this the concat below fails with
+# "can only concatenate list (not UndefinedMarker)" on those three hosts.
+# all.yml.example carried this default; it was lost when the real all.yml
+# moved the channel config here, so it lives here now next to the concat.
+splunk_uf_win_monitor_channels_extra: []
 
 splunk_uf_win_monitor_channels: "{{ splunk_uf_win_monitor_channels_common + splunk_uf_win_monitor_channels_extra }}"
 
