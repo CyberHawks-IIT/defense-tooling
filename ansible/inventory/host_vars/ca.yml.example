@@ -1,18 +1,24 @@
-# IIS is already logging by default on this host (confirmed live: W3C
-# extended format on the Default Web Site, which the AD CS Web Enrollment
-# "CertSrv" virtual directory sits under) — nothing needed on cyber-range's
-# side for this one, unlike SQL Server/CA auditing. See CLAUDE.md's
+# IIS logging on ca is specifically for ESC8 (AD CS HTTP web enrollment,
+# the "CertSrv" virtual directory under the Default Web Site): the
+# certificate request itself is in the Security log (4886/4887, forwarded via
+# the whitelist below), but only the IIS log records that the request came
+# over HTTP to /certsrv, and from which client IP. See CLAUDE.md's
 # monitoring rollout plan step 4 follow-up.
-# ms:iis:auto (header-driven) rather than ms:iis:default (fixed column order):
-# this range's IIS sites log a customized W3C field set, which the fixed-column
-# sourcetype mis-maps. crc_salt <SOURCE> avoids CRC collisions across daily
-# log files. On ca this feeds ESC8 (HTTP web enrollment) detection specifically
-# -- see the splunk_forwarder_windows role's props.conf.j2.
-splunk_uf_win_monitor_files:
-  - path: 'C:\inetpub\logs\LogFiles\W3SVC1\*.log'
-    sourcetype: "ms:iis:auto"
+# IIS access logging comes from IIS's ETW output, not the W3C log files
+# (2026-09-30). HTTP.SYS writes the file log in batches of up to ~60s
+# whatever the settings (DisableLogBuffering and IIS 10's
+# flushByEntryCountW3CLog were both tested live and neither helps), so an IIS
+# detection waited up to a minute before its line even reached the disk.
+# cyber-range's detection_logging role sets logTargetW3C = "File,ETW" and
+# enables the Microsoft-IIS-Logging/Logs channel, which receives each request
+# as event 6200 within about a second. The files are still written on the
+# host; they are just no longer forwarded (the same requests would otherwise
+# be indexed twice).
+splunk_uf_win_monitor_channels_extra:
+  - channel: Microsoft-IIS-Logging/Logs
+    renderXml: true
+    sourcetype: "XmlWinEventLog:Microsoft-IIS-Logging/Logs"
     index: iis
-    crc_salt: "<SOURCE>"
 
 # Certificate Services auditing (cyber-range's "SQL Server telemetry +
 # Certificate Services auditing" work) lands in ca's own Security log as
@@ -20,4 +26,4 @@ splunk_uf_win_monitor_files:
 # adding a second [WinEventLog://Security] stanza, see
 # splunk_uf_win_security_whitelist_extra's own comment in
 # group_vars/splunk_forwarders_windows/monitor.yml.
-splunk_uf_win_security_whitelist_extra: "4886,4887,4888,4889,4890,4891,4892,4893,4894,4895,4896,4897,4898,4899"
+splunk_uf_win_security_whitelist_extra: "4886,4887"

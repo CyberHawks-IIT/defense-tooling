@@ -1,0 +1,10 @@
+# Deployed 0600 by the splunk_indexer role. Read by the app's
+# bin/dispatch_detections.py (shipped with the splunk-detections app), which
+# the cyberhawks-dispatch systemd service runs. Holds the Splunk REST
+# credentials, so it lives in local/ and is never committed.
+[dispatcher]
+base_url = https://127.0.0.1:8089
+username = {{ splunk_dispatcher_user }}
+password = {{ splunk_dispatcher_password }}
+app = {{ splunk_detections_app_name }}
+interval = {{ splunk_dispatcher_interval }}

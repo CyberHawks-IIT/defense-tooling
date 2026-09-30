@@ -1,0 +1,19 @@
+[Unit]
+Description=CyberHawks detection dispatcher (fires detections every 15s)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as the splunk runtime user, set by the role (User= is templated in via a
+# drop-in the role writes, since the account name is deployment-specific).
+Environment=SPLUNK_HOME=/opt/splunk
+# `splunk cmd python3`, not bin/python3 directly: it puts $SPLUNK_HOME/lib on
+# LD_LIBRARY_PATH so the bundled Python finds Splunk's own libcrypto/libssl
+# (a bare bin/python3 fails to import ssl on this build).
+ExecStart=/opt/splunk/bin/splunk cmd python3 /opt/splunk/etc/apps/cyberhawks_detections/bin/dispatch_detections.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

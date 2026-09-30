@@ -32,6 +32,20 @@
     line: "interface={{ zeek_capture_interface }}"
   notify: deploy zeek
 
+# The site policy the detections depend on (flow timeouts; see the file).
+- name: Deploy the CyberHawks site policy
+  ansible.builtin.copy:
+    src: cyberhawks.zeek
+    dest: /opt/zeek/share/zeek/site/cyberhawks.zeek
+    mode: "0644"
+  notify: deploy zeek
+
+- name: Load the CyberHawks site policy from local.zeek
+  ansible.builtin.lineinfile:
+    path: /opt/zeek/share/zeek/site/local.zeek
+    line: "@load ./cyberhawks.zeek"
+  notify: deploy zeek
+
 - name: Ensure the capture interface is defined, up, and promiscuous (persists across reboots)
   ansible.builtin.blockinfile:
     path: /etc/network/interfaces

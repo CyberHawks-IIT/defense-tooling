@@ -1,7 +1,7 @@
 {% for ch in splunk_uf_win_monitor_channels %}
 [WinEventLog://{{ ch.channel }}]
 disabled = 0
-index = {{ splunk_uf_win_index }}
+index = {{ ch.index | default(splunk_uf_win_index) }}
 {% if ch.sourcetype is defined and ch.sourcetype %}
 sourcetype = {{ ch.sourcetype }}
 {% endif %}

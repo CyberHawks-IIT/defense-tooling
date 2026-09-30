@@ -41,6 +41,18 @@ splunk_detections_repo_dir: ""
 # The app directory name created under $SPLUNK_HOME/etc/apps.
 splunk_detections_app_name: cyberhawks_detections
 
+# The detection dispatcher (see files/dispatch_detections.py, shipped with the
+# splunk-detections app, and files/cyberhawks-dispatch.service). It fires every
+# detection every splunk_dispatcher_interval seconds via REST for sub-minute
+# alerting; Splunk's own 1/min scheduler stays on as a fallback. Off by default
+# because it only makes sense once the detection searches are deployed.
+splunk_enable_dispatcher: "{{ splunk_deploy_detection_searches | bool }}"
+splunk_dispatcher_interval: 15
+# REST credentials the dispatcher authenticates with. Default to the admin
+# account seeded at first start; override (vault it) to a dedicated account.
+splunk_dispatcher_user: admin
+splunk_dispatcher_password: "{{ splunk_admin_password }}"
+
 # Discord alerting (optional). Set discord_webhook_url (vault it) to a Discord
 # channel webhook to install the `discord_alert` custom alert action and wire
 # every deployed detection to it (this also rebuilds the detections app with
@@ -101,4 +113,7 @@ splunk_dbconnect_mssql_hosts: []
 splunk_dbconnect_mssql_index: mssql
 splunk_dbconnect_mssql_xe_sourcetype: mssql_xe_text
 splunk_dbconnect_mssql_audit_sourcetype: mssql_audit
-splunk_dbconnect_mssql_poll_interval: 60
+# Seconds between DB Connect polls. Every poll of an input takes ~60-90 ms
+# (measured 2026-09-30), and the SQL detections wait for it: at 60 they waited
+# up to a minute (~30s average) before the row even reached Splunk.
+splunk_dbconnect_mssql_poll_interval: 5

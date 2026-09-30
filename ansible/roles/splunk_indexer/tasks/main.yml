@@ -210,6 +210,62 @@
         directory_mode: "0755"
       notify: restart splunk
 
+# The detection dispatcher: a systemd service that fires every detection every
+# splunk_dispatcher_interval seconds via REST for sub-minute alerting (Splunk's
+# own scheduler is 1/min at best). The dispatch script itself ships with the
+# splunk-detections app (bin/dispatch_detections.py, deployed above); this
+# installs its credentials file and the systemd unit. See that script's
+# docstring and CLAUDE.md "Sub-minute dispatch".
+- name: Configure the detection dispatcher
+  when:
+    - splunk_enable_dispatcher | bool
+    - splunk_deploy_detection_searches | bool
+    - splunk_detections_app_src | length > 0
+  block:
+    - name: Deploy the dispatcher credentials file (secret, in local/)
+      ansible.builtin.template:
+        src: dispatcher.conf.j2
+        dest: "{{ splunk_home }}/etc/apps/{{ splunk_detections_app_name }}/local/dispatcher.conf"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+
+    - name: Install the dispatcher systemd unit
+      ansible.builtin.copy:
+        src: cyberhawks-dispatch.service
+        dest: /etc/systemd/system/cyberhawks-dispatch.service
+        mode: "0644"
+      register: dispatch_unit
+
+    # The unit runs as the splunkd runtime user ({{ ansible_user }}), which is
+    # deployment-specific, so it is set via a drop-in rather than hard-coded in
+    # the shipped unit file.
+    - name: Set the dispatcher service user
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/cyberhawks-dispatch.service.d/user.conf
+        content: |
+          [Service]
+          User={{ ansible_user }}
+        mode: "0644"
+      register: dispatch_dropin
+
+    - name: Reload systemd if the dispatcher unit changed
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: dispatch_unit is changed or dispatch_dropin is changed
+
+    - name: Enable and start the dispatcher
+      ansible.builtin.systemd:
+        name: cyberhawks-dispatch.service
+        enabled: true
+        state: started
+
+    - name: Restart the dispatcher if its config or unit changed
+      ansible.builtin.systemd:
+        name: cyberhawks-dispatch.service
+        state: restarted
+      when: dispatch_unit is changed or dispatch_dropin is changed
+
 # Discord alerting (optional). When discord_webhook_url is set, install the
 # discord_alert custom alert action app and the webhook; the build step above
 # is also told to wire every search to it (--discord), which needs
