@@ -67,3 +67,57 @@ event connection_established(c: connection) {
     if (c$id$resp_p == 389/tcp || c$id$resp_p == 636/tcp || c$id$resp_p == 9389/tcp)
         Log::write(ConnOpen::LOG, [$ts=network_time(), $uid=c$uid, $id=c$id]);
 }
+
+# Broadcast ARP request log for the ARP Scan detection (2026-10-02). Zeek has
+# no ARP log of its own. A host discovering who is alive on its own subnet
+# (nmap -sn/-PR, arp-scan, netdiscover) has to broadcast a who-has for every
+# address, because it doesn't know their MACs yet; ordinary hosts mostly send
+# unicast cache-refresh requests to MACs they already know. So only broadcast
+# requests are logged, which is all ARP Scan needs. Measured on the mirror
+# feed before enabling: 69 ARP requests in 10 minutes, 5 of them broadcast,
+# i.e. ~700 lines (~70 KB) a day, versus ~1 MB/day for every request. ARP
+# probes (sender 0.0.0.0, duplicate-address detection) and gratuitous ARP
+# (sender == target, an address announcement) are not lookups of other hosts
+# and are skipped. Columns: the sender's MAC and IP, and the IP asked for.
+module ArpRequest;
+export {
+    redef enum Log::ID += { LOG };
+    type Info: record {
+        ts: time &log;
+        orig_mac: string &log;
+        orig_h: addr &log;
+        resp_h: addr &log;
+    };
+}
+event zeek_init() {
+    Log::create_stream(ArpRequest::LOG, [$columns=Info, $path="arp_request"]);
+}
+event arp_request(mac_src: string, mac_dst: string, SPA: addr, SHA: string, TPA: addr, THA: string) {
+    if (mac_dst != "ff:ff:ff:ff:ff:ff" || SPA == 0.0.0.0 || SPA == TPA)
+        return;
+    Log::write(ArpRequest::LOG, [$ts=network_time(), $orig_mac=mac_src, $orig_h=SPA, $resp_h=TPA]);
+}
+
+# MAC addresses on name-resolution flows only (2026-10-02), for Name
+# Resolution Poisoning. A poisoner such as Responder answers a victim's
+# IPv4 AND IPv6 (link-local) queries, so by IP alone one attack looked like two
+# attackers (10.0.2.10 and fe80::be24:11ff:fef4:c79) and posted two alerts.
+# Both answers carry the same source MAC, so the detection groups by MAC and
+# reports the IPv4 address. Zeek's stock policy/protocols/conn/mac-logging
+# would add both MACs to every conn.log line (~2.6 MB/day here); this fills
+# them only for LLMNR (5355), mDNS (5353) and NBNS (137) flows, leaving "-"
+# elsewhere (~0.3 MB/day). Same column names as the stock policy, appended to
+# the end of conn.log, so the Splunk field list just gains two trailing names.
+redef record Conn::Info += {
+    orig_l2_addr: string &log &optional;
+    resp_l2_addr: string &log &optional;
+};
+const name_resolution_ports: set[port] = { 5355/udp, 5353/udp, 137/udp };
+event connection_state_remove(c: connection) {
+    if (c$id$resp_p !in name_resolution_ports && c$id$orig_p !in name_resolution_ports)
+        return;
+    if (c$orig?$l2_addr)
+        c$conn$orig_l2_addr = c$orig$l2_addr;
+    if (c$resp?$l2_addr)
+        c$conn$resp_l2_addr = c$resp$l2_addr;
+}

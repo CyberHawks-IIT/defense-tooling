@@ -32,9 +32,16 @@ splunk_uf_win_monitor_channels_common:
   # detection's regdump path keys on it (svchost SeBackupPrivilege enable with
   # no hive-export open), and its steady-state volume is modest (~15 MB/day;
   # the bursty numbers seen while testing were the dump attacks themselves).
+  # 2026-10-02: added 4723 (an account changed its own password, knowing the
+  # old one) and 4724 (an account's password was reset by another account,
+  # e.g. ForceChangePassword/GenericAll abuse) for the Password Change
+  # detection. Both are needed: they are different techniques and neither
+  # event fires for the other. Measured before adding: one event in ~2 days
+  # across all 7 hosts (cloudbase-init's own boot-time reset on dc1), so
+  # effectively 0 MB/day and no filtering is worth its cost.
   - channel: Security
     whitelist: >-
-      1102,4624,4625,4656,4662,4663,4673,4697,4698,4728,4729,4732,4733,4741,4756,4757,4768,4769,4771,5136,5137,5145{{
+      1102,4624,4625,4656,4662,4663,4673,4697,4698,4723,4724,4728,4729,4732,4733,4741,4756,4757,4768,4769,4771,5136,5137,5145{{
       "," + splunk_uf_win_security_whitelist_extra if splunk_uf_win_security_whitelist_extra else "" }}
     # 2026-09-29: the forwarder's own 4673/4674 feedback loop. With
     # FullPrivilegeAuditing on (cyber-range, for the SAM/LSA dump detections),

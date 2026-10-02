@@ -17,6 +17,9 @@ splunk_uf_monitor_files:
   # role's cyberhawks.zeek): the LDAP Query detection uses it for the ADWS
   # client IP and the ldap-vs-ldaps label, at query time instead of on close.
   - conn_open.log
+  # Broadcast ARP requests (zeek_sensor role's cyberhawks.zeek), for the
+  # ARP Scan detection. ~700 lines/day at baseline.
+  - arp_request.log
 
 # Step 4 (CLAUDE.md, monitoring rollout plan): a dedicated index instead of
 # the default "main" — see splunk_indexer's dt_detection_content_indexes.conf.
