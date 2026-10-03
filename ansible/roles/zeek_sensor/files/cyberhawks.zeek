@@ -117,14 +117,18 @@ event arp_request(mac_src: string, mac_dst: string, SPA: addr, SHA: string, TPA:
 # Both answers carry the same source MAC, so the detection groups by MAC and
 # reports the IPv4 address. Zeek's stock policy/protocols/conn/mac-logging
 # would add both MACs to every conn.log line (~2.6 MB/day here); this fills
-# them only for LLMNR (5355), mDNS (5353) and NBNS (137) flows, leaving "-"
-# elsewhere (~0.3 MB/day). Same column names as the stock policy, appended to
-# the end of conn.log, so the Splunk field list just gains two trailing names.
+# them only for LLMNR (5355), mDNS (5353), NBNS (137) and DHCPv6 (547/546)
+# flows, leaving "-" elsewhere (~0.3 MB/day). DHCPv6 (added 2026-10-03, for
+# DHCPv6 Spoofing) is pure IPv6, so the poisoner only ever appears as its
+# link-local address; its MAC here lets the detection best-effort recover an
+# IPv4 for the Discord attacker lookup. Same column names as the stock policy,
+# appended to the end of conn.log, so the Splunk field list just gains two
+# trailing names.
 redef record Conn::Info += {
     orig_l2_addr: string &log &optional;
     resp_l2_addr: string &log &optional;
 };
-const name_resolution_ports: set[port] = { 5355/udp, 5353/udp, 137/udp };
+const name_resolution_ports: set[port] = { 5355/udp, 5353/udp, 137/udp, 547/udp, 546/udp };
 event connection_state_remove(c: connection) {
     if (c$id$resp_p !in name_resolution_ports && c$id$orig_p !in name_resolution_ports)
         return;
