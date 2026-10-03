@@ -63,8 +63,20 @@ export {
 event zeek_init() {
     Log::create_stream(ConnOpen::LOG, [$columns=Info, $path="conn_open"]);
 }
+#
+# WinRM (5985/5986) added 2026-10-02 for the same reason: on the two Windows
+# Server 2016 hosts (dc1, sql1, build 14393) WinRM/Operational event 91 is
+# written with no data at all -- no ResourceUri and no "clientIP" -- and a
+# WinRM network logon's 4624 has no source address on any host, so an action
+# taken through a WinRM session there could not be tied to an IP. Lateral
+# Movement: WinRM was blind on those two hosts and Password Change attributed
+# a WinRM-driven reset to the DC itself. They now take the client from the
+# latest WinRM connection open to that host just before the session. Volume:
+# ~750 WinRM connections/day (nearly all this project's own administration),
+# ~65 bytes each.
 event connection_established(c: connection) {
-    if (c$id$resp_p == 389/tcp || c$id$resp_p == 636/tcp || c$id$resp_p == 9389/tcp)
+    if (c$id$resp_p == 389/tcp || c$id$resp_p == 636/tcp || c$id$resp_p == 9389/tcp
+        || c$id$resp_p == 5985/tcp || c$id$resp_p == 5986/tcp)
         Log::write(ConnOpen::LOG, [$ts=network_time(), $uid=c$uid, $id=c$id]);
 }
 
