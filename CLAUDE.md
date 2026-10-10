@@ -363,7 +363,8 @@ host's `host_vars/` — `zeek` for the sensor, `linux` for the demo box) and
 in `group_vars/splunk_forwarders_windows/monitor.yml`). Deployed via a new
 `dt_detection_content` Splunk app (`splunk_indexer` role,
 `splunk_deploy_detection_content: true` by default) — see
-`ansible/roles/splunk_indexer/files/dt_detection_content_indexes.conf`.
+`ansible/roles/splunk_indexer/templates/dt_detection_content_indexes.conf.j2`
+(a template since 2026-10-09, see "Indexer disk full" below).
 Already-indexed events sitting in `main` from before this change were left
 alone by the reindex itself — see "Clearing logs" in this project's history
 for the actual cutover (the same session that made this change also cleared
@@ -846,6 +847,36 @@ Both the Splunk indexer (510) and Zeek sensor (511) had all logs cleared and
 were re-snapshotted (same "power off → snapshot → power on" process,
 replacing their existing latest snapshot) after this fix, before any real
 detection testing began.
+
+## Indexer disk full: retention made enforceable and configurable (2026-10-09)
+
+No alerts reached Discord for ~26 h (2026-10-08 02:13 UTC onward). The
+indexer's 16 GB disk had dropped under Splunk's `minFreeSpace` floor (5000
+MB), and below it Splunk refuses to dispatch searches (every dispatcher call
+returned 503 `The minimum free disk space (5000MB) reached`) and pauses
+indexing. The detection data itself was under 100 MB; the space was Splunk's
+own `_introspection` (2.7 GB), `_internal` (1.5 GB) and `_audit` (1.2 GB),
+fed at ~900 MB/day by the 15 s dispatcher.
+
+- **The 2026-09-30 internal-index caps never worked.** Splunk only freezes
+  warm/cold buckets, and the default hot bucket stays open until ~750 MB+ or
+  90 days, so nearly everything sat in hot buckets the cap couldn't touch
+  (_introspection 2.7 GB vs a 1 GB cap). Fix: every index gets
+  `maxDataSize = 100` + `maxHotSpanSecs = 86400`, so buckets close at least
+  daily and the cap and age limit trim continuously. A restart rolls hot
+  buckets, which is how the live fix freed ~5 GB immediately.
+- **Configurable from three role variables** (`splunk_indexer`
+  `defaults/main.yml`, override in `group_vars/all.yml`):
+  `splunk_index_storage_mb` (total for all indexes, split by
+  `splunk_index_storage_shares` percentages; default 3500 for a 16 GB disk),
+  `splunk_data_retention_days` (14; an assert keeps it at 7 or more, the SQL
+  detections' login-session lookback), `splunk_internal_retention_days` (7).
+  `dt_detection_content_indexes.conf` is now a template rendered from them; a
+  `[default]` stanza backstops any unlisted index.
+- **Diagnosis tip:** the dispatcher logs only failures, so a silent
+  `journalctl -u cyberhawks-dispatch` is healthy. When alerts stop, look there
+  for `dispatched 0 ok`, then POST one `saved/searches/<name>/dispatch` by hand
+  to read Splunk's actual reason.
 
 ## Open items
 

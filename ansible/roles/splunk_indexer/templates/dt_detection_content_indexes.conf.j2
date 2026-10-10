@@ -1,0 +1,68 @@
+# {{ ansible_managed }}
+# Deployed by the splunk_indexer role to dt_detection_content/local/indexes.conf.
+# Rendered from the role's retention variables (defaults/main.yml):
+#   splunk_index_storage_mb        = {{ splunk_index_storage_mb }}  (total MB all indexes may use)
+#   splunk_data_retention_days     = {{ splunk_data_retention_days }}
+#   splunk_internal_retention_days = {{ splunk_internal_retention_days }}
+# Change those, not this file.
+#
+# Separates data by source rather than leaving everything in the "main"
+# default index -- see CLAUDE.md's monitoring rollout plan step 4 for the
+# reasoning. "main" itself is untouched (still exists, just unused going
+# forward -- nothing here deletes it or migrates its existing contents).
+#
+# Retention (2026-10-09): short and size-bounded on purpose. Splunk stops BOTH
+# searching and indexing when free disk drops under 5000 MB (server.conf
+# minFreeSpace), which silently halted every detection for ~26 h on
+# 2026-10-08. So every index ages out by time and is capped by size, and the
+# caps add up to splunk_index_storage_mb.
+#
+# A size cap only works if buckets actually roll. Splunk can freeze (delete)
+# only warm/cold buckets, never hot ones, and by default a hot bucket stays
+# open until it reaches ~750 MB-10 GB or 90 days. That made the earlier caps
+# unenforceable: _introspection sat at 2.7 GB against a 1 GB cap, all in hot
+# buckets. So every index here gets small buckets (maxDataSize) that close at
+# least daily (maxHotSpanSecs), and the cap/age then trims them continuously.
+{% set data_secs = (splunk_data_retention_days | int) * 86400 %}
+{% set internal_secs = (splunk_internal_retention_days | int) * 86400 %}
+{% macro cap(index) -%}
+maxTotalDataSizeMB = {{ ((splunk_index_storage_mb | int) * (splunk_index_storage_shares[index] | float) / 100) | int }}
+{%- endmacro %}
+
+# Backstop for any index not listed below (main, summary, _telemetry,
+# _configtracker, ...). Explicit per-index stanzas below override it, and so
+# do settings Splunk's own system/default stanzas set per index, which is why
+# the internal indexes are all listed explicitly.
+[default]
+maxDataSize            = 100
+maxHotSpanSecs         = 86400
+frozenTimePeriodInSecs = {{ data_secs }}
+maxTotalDataSizeMB     = {{ splunk_index_default_max_mb | int }}
+
+{% for index in ['zeek', 'windows', 'linux', 'mssql', 'iis'] %}
+{% if index == 'mssql' %}
+# mssql + iis (step-4 follow-up, SQL Server + IIS ingestion) are kept
+# separate from "windows" even though both run on Windows hosts, since
+# they're a genuinely different data domain (database audit trail / web
+# server access log, not host security events).
+{% endif %}
+[{{ index }}]
+homePath   = $SPLUNK_DB/{{ index }}/db
+coldPath   = $SPLUNK_DB/{{ index }}/colddb
+thawedPath = $SPLUNK_DB/{{ index }}/thaweddb
+{{ cap(index) }}
+
+{% endfor %}
+# Splunk's own internal indexes. The detections run every 15 seconds (~200
+# searches a minute) and every run writes audit, scheduler and resource-usage
+# records: measured ~570 MB/day into _introspection and ~300 MB/day into
+# _audit. Each is listed explicitly because system/default sets its own
+# bucket size, hot span and retention per internal index.
+{% for index in ['_internal', '_audit', '_introspection', '_metrics', '_metrics_rollup'] %}
+[{{ index }}]
+maxDataSize            = 100
+maxHotSpanSecs         = 86400
+frozenTimePeriodInSecs = {{ internal_secs }}
+{{ cap(index) }}
+
+{% endfor %}

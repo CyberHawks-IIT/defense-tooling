@@ -16,6 +16,38 @@ splunk_addons_dir: ""
 splunk_home: /opt/splunk
 splunk_receiving_port: 9997
 
+# Index storage and retention (templates/dt_detection_content_indexes.conf.j2).
+# Old data is deleted automatically once it is older than the retention period
+# OR its index reaches its share of the storage budget, whichever comes first.
+#
+# splunk_index_storage_mb is the total disk all indexes together may use. Size
+# it to the indexer's disk: Splunk halts searching AND indexing below 5000 MB
+# free, and the install, KV store and dispatch directory take roughly 4-5 GB
+# more. 3500 suits a 16 GB disk (8 GB free at full retention); on a 32 GB disk
+# ~18000 is safe.
+splunk_index_storage_mb: 3500
+# Zeek/Windows/Linux/SQL/IIS data. Keep this at 7 or more: the SQL detections
+# trace a statement back to its login session up to 7 days earlier.
+splunk_data_retention_days: 14
+# Splunk's own _internal/_audit/_introspection/_metrics logs.
+splunk_internal_retention_days: 7
+# Percent of splunk_index_storage_mb each index may use (must sum to 100).
+# The internal indexes are large because the 15 s dispatcher writes ~900
+# MB/day of audit and resource-usage records.
+splunk_index_storage_shares:
+  zeek: 22
+  windows: 22
+  linux: 4
+  mssql: 4
+  iis: 4
+  _internal: 22
+  _audit: 11
+  _introspection: 7
+  _metrics: 3
+  _metrics_rollup: 1
+# Cap for each index not listed above (main, summary, _telemetry, ...), MB.
+splunk_index_default_max_mb: 64
+
 # Whether to deploy the dt_detection_content app: the zeek/windows/linux
 # indexes, and the macros/eventtypes/lookup supporting
 # splunk-detections/detections/backlog.md (see CLAUDE.md's monitoring

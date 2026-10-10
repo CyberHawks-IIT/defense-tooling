@@ -16,6 +16,12 @@ splunk_deb_path: /path/to/splunk-enterprise.deb
 splunk_admin_password: "changeme"          # vault this in a real deployment
 splunk_addons_dir: /path/to/downloaded/addons   # directory of .tgz/.spl files
 splunk_receiving_port: 9997
+# Index disk budget and retention (defaults shown, suited to a 16 GB indexer
+# disk). Old data is deleted automatically past either limit. See the
+# splunk_indexer role's defaults/main.yml for how to size the budget.
+# splunk_index_storage_mb: 3500
+# splunk_data_retention_days: 14
+# splunk_internal_retention_days: 7
 
 # --- splunk_indexer role: splunk-detections saved searches ---
 # Deploy the detection content from the sibling splunk-detections repo. With

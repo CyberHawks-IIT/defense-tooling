@@ -124,9 +124,20 @@
         mode: "0644"
       notify: restart splunk
 
-    - name: Deploy dt_detection_content/local/indexes.conf (zeek/windows/linux indexes)
-      ansible.builtin.copy:
-        src: dt_detection_content_indexes.conf
+    - name: Check the index storage/retention settings
+      ansible.builtin.assert:
+        that:
+          - splunk_index_storage_shares.values() | map('float') | sum == 100
+          - splunk_data_retention_days | int >= 7
+          - splunk_internal_retention_days | int >= 1
+        fail_msg: >-
+          splunk_index_storage_shares must sum to 100, and
+          splunk_data_retention_days must be at least 7 (the SQL detections
+          look back 7 days for the login session).
+
+    - name: Deploy dt_detection_content/local/indexes.conf (indexes, retention, size caps)
+      ansible.builtin.template:
+        src: dt_detection_content_indexes.conf.j2
         dest: "{{ splunk_home }}/etc/apps/dt_detection_content/local/indexes.conf"
         mode: "0644"
       notify: restart splunk
